@@ -488,6 +488,89 @@ await test('find my car manual: "prompt is too long" retries search-only, then e
   assert.equal(await page.locator('#errRetry').count(), 0, 'no pointless retry button');
 });
 
+const SEAT_URL = 'https://www.saferide.example/manuals/360.pdf';
+await test('find the car seat manual online: search-only lookup, confirm, PDF read by URL, cached', async ({ page, mock }) => {
+  await setKey(page);
+  await startCarBuild(page);
+  assert.equal(await page.locator('#findSeat').isDisabled(), true, 'needs brand and model');
+  await page.fill('#seat_brand', 'SafeRide'); await page.fill('#seat_model', '360');
+  await page.click('#findSeat');
+  await page.waitForSelector('#confirmSeat');
+  const look = mock.state.requests.find(r => r.call === 'findSeatManual');
+  assert.equal(look.body.model, 'claude-haiku-5-5');
+  assert.deepEqual(look.body.tools.map(t => t.name), ['web_search'], 'lookup cannot fetch pages');
+  assert.match(look.body.messages[0].content[0].text, /brand SafeRide, model 360/);
+  assert.equal(await page.locator('#readManual').isDisabled(), true, 'not usable until confirmed');
+  await page.click('#confirmSeat');
+  await page.waitForSelector('#seatConfirmed');
+  assert.equal(await page.locator('#readManual').isDisabled(), false);
+  await page.click('#readManual');
+  await page.waitForSelector('[data-mode=rf_latch]');
+  const parse = mock.state.requests.find(r => r.call === 'parseManual');
+  const c0 = parse.body.messages[0].content;
+  const doc = c0.find(c => c.type === 'document');
+  assert.deepEqual(doc.source, { type: 'url', url: SEAT_URL });
+  assert.equal(c0.filter(c => c.type === 'image').length, 0, 'no page images when read online');
+  assert.match(c0.find(c => /attached PDF/.test(c.text || '')).text, /manualBox to \[0,0,0,0\]/);
+  // the build works without manual page images: no inset, no crash
+  await page.click('[data-mode=rf_latch]'); await page.click('#startBuild'); await page.click('#invSkip');
+  await page.waitForSelector('#stepHeader');
+  assert.equal(await page.locator('.inset').count(), 0);
+  await page.click('#skipGrab'); await page.click('#skipPlace');
+  mock.state.checkVerdicts.push('pass');
+  await choose(page, '#uploadCheck', [FX('check.jpg')]);
+  await page.waitForSelector('#verdict');
+  const chk = mock.state.requests.filter(r => r.call === 'checkStep').at(-1);
+  assert.equal(chk.body.messages[0].content.filter(c => c.type === 'image').length, 1, 'only the check photo, no manual crop');
+  // same seat in another build: lookup and parse come from the cache
+  await startCarBuild(page, { job: 'move' });
+  await page.fill('#seat_brand', 'SafeRide'); await page.fill('#seat_model', '360');
+  await page.click('#findSeat'); await page.waitForSelector('#confirmSeat'); await page.click('#confirmSeat');
+  await page.click('#readManual'); await page.waitForSelector('[data-mode=rf_latch]');
+  assert.equal(mock.state.requests.filter(r => r.call === 'findSeatManual').length, 1);
+  assert.equal(mock.state.requests.filter(r => r.call === 'parseManual').length, 1);
+});
+
+await test('find the car seat manual online: non-official, not found, unreadable link, then upload still works', async ({ page, mock }) => {
+  await setKey(page);
+  await startCarBuild(page);
+  await page.fill('#seat_brand', 'SafeRide'); await page.fill('#seat_model', '360');
+  mock.state.seat.push('unofficial');
+  await page.click('#findSeat');
+  await page.waitForSelector('#seatNotFound');
+  assert.match(await page.locator('#seatNotFound').innerText(), /non-official/);
+  assert.equal(await page.locator('#confirmSeat').count(), 0);
+  mock.state.seat.push('notFound');
+  await page.click('#findSeat');
+  await page.waitForFunction(() => /No official manual for that model/.test(document.querySelector('#seatNotFound')?.innerText || ''));
+  // found, confirmed, but the API can't download it
+  await page.click('#findSeat');
+  await page.waitForSelector('#confirmSeat'); await page.click('#confirmSeat');
+  mock.state.parse.push('docFail');
+  await page.click('#readManual');
+  await page.waitForSelector('#errMsg');
+  assert.match(await page.locator('#errMsg').innerText(), /Upload the manual’s pages or PDF/);
+  assert.equal(await page.locator('#errRetry').count(), 0);
+  await page.click('text=Close');
+  await page.waitForSelector('#seatNotFound');
+  assert.equal(await page.locator('#readManual').isDisabled(), true);
+  // too long
+  await page.click('#findSeat'); await page.waitForSelector('#confirmSeat'); await page.click('#confirmSeat');
+  mock.state.parse.push('tooLong');
+  await page.click('#readManual');
+  await page.waitForSelector('#errMsg');
+  assert.match(await page.locator('#errMsg').innerText(), /too long to read in one go/);
+  await page.click('text=Close');
+  // uploading still works, and uploaded pages win over an online link
+  await choose(page, '[data-add=seat-file]', [FX('carseat_manual.pdf')]);
+  await page.waitForSelector('#seatPages .thumb >> nth=1');
+  await page.click('#readManual');
+  await page.waitForSelector('[data-mode=rf_latch]');
+  const parse = mock.state.requests.filter(r => r.call === 'parseManual').at(-1);
+  assert.equal(parse.body.messages[0].content.filter(c => c.type === 'document').length, 0);
+  assert.equal(parse.body.messages[0].content.filter(c => c.type === 'image').length, 2);
+});
+
 await test('proxy mode sends passcode, never the key', async ({ page, mock }) => {
   await page.goto(BASE);
   await page.click('#setBtn');

@@ -6,6 +6,8 @@ export function createMock() {
     requests: [],
     next: [],            // queued one-shot behaviours: 'refusal' | 'offline' | 'overloaded' | 'max_tokens'
     checkVerdicts: [],   // queued check verdicts; default 'pass'
+    seat: [],            // queued seat-lookup behaviours: 'unofficial' | 'notFound'
+    parse: [],           // queued parseManual failures: 'docFail' | 'tooLong'
     vehicle: [],         // queued vehicle-lookup behaviours: 'pause' | 'wrongYear' | 'notFound' | 'webOff' | 'freeText' | 'unofficial'
   };
   const vehicleFound = (year = 2021) => ({ found: true, manual: { title: `${year} Honda CR-V Owner's Manual`, year, make: 'Honda', model: 'CR-V', url: 'https://owners.honda.com/crv-2021.pdf', publisher: 'American Honda Motor Co.', isOfficial: true },
@@ -100,11 +102,27 @@ export function createMock() {
     return { ...base, content: [...tools, { type: 'text', text }], stop_reason: 'end_turn' };
   }
 
+  function seatMessage(body, kind) {
+    const url = 'https://www.saferide.example/manuals/360.pdf';
+    const found = { found: true, manual: { title: 'SafeRide 360 Instruction Manual', brand: 'SafeRide', model: '360', url, publisher: 'SafeRide Inc.', isOfficial: kind !== 'unofficial', language: 'English' }, matchNotes: 'Exact model match.', notFoundReason: null };
+    const json = kind === 'notFound' ? { found: false, manual: { title: '', brand: '', model: '', url: '', publisher: '', isOfficial: false, language: '' }, matchNotes: '', notFoundReason: 'No official manual for that model.' } : found;
+    return { id: 'msg_s', type: 'message', role: 'assistant', model: body.model, usage: { input_tokens: 3000, output_tokens: 300, server_tool_use: { web_search_requests: 1 } },
+      content: [{ type: 'server_tool_use', id: 'srvtoolu_2', name: 'web_search', input: { query: 'SafeRide 360 manual pdf' } }, { type: 'text', text: JSON.stringify(json) }], stop_reason: 'end_turn' };
+  }
+
   async function handler(route) {
     const req = route.request();
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors() });
     const body = JSON.parse(req.postData());
     state.requests.push({ url: req.url(), headers: req.headers(), body, call: callOf(body) });
+    if (callOf(body) === 'findSeatManual') {
+      const msg = seatMessage(body, state.seat.shift());
+      return route.fulfill({ status: 200, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify(msg) });
+    }
+    if (callOf(body) === 'parseManual' && state.parse.length) {
+      const k = state.parse.shift();
+      return route.fulfill({ status: 400, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: k === 'docFail' ? 'Unable to download the file. Please verify the URL is accessible.' : 'prompt is too long: 1280140 tokens > 1000000 maximum' } }) });
+    }
     if (callOf(body) === 'findVehicleManual') {
       let kind = state.vehicle[0] || 'found';
       if (kind === 'tooLong' || kind === 'tooLongAlways') {

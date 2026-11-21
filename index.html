@@ -430,12 +430,12 @@ function extractJson(text) {
   if (a < 0 || b <= a) throw new Error('no json');
   return JSON.parse(t.slice(a, b + 1));
 }
-async function callClaudeWithWeb({ call, model, system, prompt, schema, effort = 'medium', signal, buildId }) {
+async function callClaudeWithWeb({ call, model, system, prompt, schema, effort = 'medium', signal, buildId, searchOnly = false }) {
   const s = Settings.load();
   if (!Settings.ready(s)) throw new UserError('Add your API key (or proxy passcode) in Settings first.');
   const { url, headers } = apiTarget(s);
   const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
-  const body = { model, max_tokens: 16000, system: [{ type: 'text', text: `CALL: ${call}\n\n${system}` }], messages, tools: webTools(model), output_config: { effort } };
+  const body = { model, max_tokens: 16000, system: [{ type: 'text', text: `CALL: ${call}\n\n${system}` }], messages, tools: webTools(model, searchOnly), output_config: { effort } };
   const t0 = performance.now(); const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, web_search_requests: 0 };
   let finalContent = [], served = model, stop = null, shrunk = false;
   for (let turn = 0; turn < 5; turn++) {
@@ -515,6 +515,12 @@ const VEHICLE_SCHEMA = obj({
   facts: arr(obj({ topic: { type: 'string', enum: ['tether_anchor', 'lower_anchors', 'belt_locking', 'inflatable_belt', 'head_restraint', 'seating_position', 'airbag', 'other'] }, fact: S, quote: S, page: S, url: S })),
   notFoundReason: NSTR,
 });
+const SEAT_SCHEMA = obj({
+  found: { type: 'boolean' },
+  manual: obj({ title: S, brand: S, model: S, url: S, publisher: S, isOfficial: { type: 'boolean' }, language: S }),
+  matchNotes: S,
+  notFoundReason: NSTR,
+});
 const DETECT_SCHEMA = obj({
   items: arr(obj({ ref: S, box: BOX, confidence: N })),
   missing: arr(S),
@@ -566,6 +572,24 @@ async function apiFindVehicleManual(vehicle, signal, buildId) {
   return callClaudeWithWeb({ call: 'findVehicleManual', model: s.models.vehicle, system: VEHICLE_SYSTEM, schema: VEHICLE_SCHEMA, effort: 'medium', signal, buildId,
     prompt: `Vehicle: model year ${vehicle.year}, make ${vehicle.make}, model ${vehicle.model}. Find its official owner's manual and extract the child restraint facts.` });
 }
+const SEAT_SYSTEM = `You find the official instruction manual PDF for a child car seat.
+- Use web_search to find the manufacturer's own instruction manual for the exact brand and model given. Prefer the manufacturer's support or manuals page.
+- manual.url must be a direct https link to the manual PDF file itself, taken from the search results. Never use manual aggregator sites, retailers, forums or review sites. Prefer English.
+- If several versions or model years exist, pick the best match for the model given and say what you chose in matchNotes.
+- You only have web_search. Do not try to read the PDF; just report the link and what the search results show about it.
+- If you cannot find an official manual for that seat, set found to false and explain in notFoundReason. Never guess a URL.
+- Final answer: ONE JSON object only, no other text, with exactly these keys: found (boolean), manual {title, brand, model, url, publisher, isOfficial (true only for the manufacturer), language}, matchNotes, notFoundReason (string or null).`;
+async function apiFindSeatManual(seat, signal, buildId) {
+  const s = Settings.load();
+  return callClaudeWithWeb({ call: 'findSeatManual', model: s.models.vehicle, system: SEAT_SYSTEM, schema: SEAT_SCHEMA, effort: 'low', signal, buildId, searchOnly: true,
+    prompt: `Child car seat: brand ${seat.brand}, model ${seat.model}. Find the manufacturer's official instruction manual PDF.` });
+}
+const SEAT_CACHE = 'bl:seats';
+const seatKey = x => [x.brand, x.model].map(v => String(v || '').trim().toLowerCase()).join('|');
+const seatCache = { get(x) { return (lsGet(SEAT_CACHE) || {})[seatKey(x)] || null; }, set(x, r) { const a = lsGet(SEAT_CACHE) || {}; a[seatKey(x)] = r; lsSet(SEAT_CACHE, a); } };
+function seatLookupUsable(r) { return !!(r?.found && r.manual?.isOfficial && /^https:\/\//i.test(r.manual.url || '')); }
+// The seat manual is read from the web only when the user confirmed a link and did not upload their own pages.
+function seatOnlineUrl(b) { return !b.pages.some(p => p.source === 'seat') && b.seatManual?.confirmed ? b.seatManual.result.manual.url : null; }
 const VEHICLE_CACHE = 'bl:vehicles';
 const vehicleKey = v => [v.year, v.make, v.model].map(x => String(x || '').trim().toLowerCase()).join('|');
 const vehicleCache = { get(v) { return (lsGet(VEHICLE_CACHE) || {})[vehicleKey(v)] || null; }, set(v, r) { const a = lsGet(VEHICLE_CACHE) || {}; a[vehicleKey(v)] = r; lsSet(VEHICLE_CACHE, a); } };
@@ -597,6 +621,11 @@ async function apiParseManual(build, signal, onProgress) {
   const s = Settings.load(); const content = [];
   const v = build.vehicle || {};
   content.push({ type: 'text', text: `Product category chosen by the user: ${build.category}.` + (build.category === 'car_seat' ? ` Vehicle: ${v.year || '?'} ${v.make || '?'} ${v.model || '?'}. Vehicle manual pages provided: ${build.pages.some(p => p.source === 'vehicle') ? 'yes' : 'no'}. Confirmed vehicle facts provided: ${confirmedVehicleFacts(build).length ? 'yes' : 'no'}.` : '') });
+  const seatUrl = seatOnlineUrl(build);
+  if (seatUrl) {
+    content.push({ type: 'document', source: { type: 'url', url: seatUrl } });
+    content.push({ type: 'text', text: 'The seat manual is the attached PDF. manualPage is the PDF page number (1 = the first page of the file, not the printed page number). There are no page images to measure, so set manualBox to [0,0,0,0]. Use only the English instructions if the manual has several languages.' });
+  }
   const vf = confirmedVehicleFacts(build);
   if (vf.length) content.push({ type: 'text', text: 'CONFIRMED VEHICLE FACTS (from the official owner\'s manual, confirmed by the user):\n' + vf.map(f => `- ${f.fact} [source: ${f.source}] quote: "${f.quote}"`).join('\n') });
   let n = 0, vn = 0;
@@ -921,7 +950,7 @@ function askRange(total, name) {
 }
 SCREENS.manual = async app => {
   const car = build.category === 'car_seat';
-  app.append(h('h2', {}, car ? 'Add the car seat manual' : 'Add the manual'), h('p', { class: 'muted' }, 'Photograph each page, or upload the PDF.'));
+  app.append(h('h2', {}, car ? 'Add the car seat manual' : 'Add the manual'), h('p', { class: 'muted' }, car ? 'Tell me which seat and I’ll find its manual online, or photograph the pages or upload the PDF.' : 'Photograph each page, or upload the PDF.'));
   const saved = Object.entries(guideCache.all()).filter(([, v]) => v.guide?.product?.category === build.category);
   if (saved.length && !build.pages.length) {
     app.append(h('div', { class: 'card' }, h('b', {}, 'Use a manual you already read'),
@@ -943,13 +972,44 @@ SCREENS.manual = async app => {
   const adders = source => h('div', { class: 'row', style: 'margin-top:10px' },
     h('button', { class: 'btn grow', 'data-add': source + '-camera', onclick: () => guarded(async () => { const f = await pickFiles({ camera: true }); if (f.length) { await addManualFiles(f, source); render(); } }) }, 'Take photo'),
     h('button', { class: 'btn grow', 'data-add': source + '-file', onclick: () => guarded(async () => { const f = await pickFiles({ multiple: true }); if (f.length) { await addManualFiles(f, source); render(); } }) }, 'Upload PDF or images'));
-  app.append(h('div', { class: 'card', id: 'seatPages' }, h('b', {}, car ? 'Car seat manual' : 'Manual'), await grid('seat'), adders('seat')));
+  if (car) app.append(seatLookupCard());
+  app.append(h('div', { class: 'card', id: 'seatPages' }, h('b', {}, car ? 'Or upload the car seat manual' : 'Manual'), await grid('seat'), adders('seat')));
   if (car) app.append(vehicleLookupCard());
   if (car) app.append(h('div', { class: 'card', id: 'vehiclePages' }, h('b', {}, build.vehicleManual?.confirmed ? 'Or upload vehicle manual pages (not needed)' : 'Or upload the vehicle manual’s child-seat pages (optional)'),
     h('p', { class: 'muted small' }, 'Adds tether and lower-anchor locations and belt locking for this car. Without a vehicle manual, those become hands-on checks.'), await grid('vehicle'), adders('vehicle')));
-  const read = h('button', { class: 'btn primary block', id: 'readManual', disabled: !build.pages.some(p => p.source === 'seat'), onclick: () => guarded(readManual) }, 'Read manual');
+  const read = h('button', { class: 'btn primary block', id: 'readManual', disabled: !(build.pages.some(p => p.source === 'seat') || build.seatManual?.confirmed), onclick: () => guarded(readManual) }, 'Read manual');
   setBar([read]);
 };
+function seatLookupCard() {
+  const st = build.seat ||= { brand: '', model: '' }; const sm = build.seatManual; const r = sm?.result;
+  const card = h('div', { class: 'card', id: 'seatLookup' }, h('b', {}, 'Find the seat’s manual online'));
+  if (sm?.confirmed) {
+    card.append(h('div', { class: 'banner ok', id: 'seatConfirmed' }, `✓ Using ${r.manual.title}`),
+      h('p', { class: 'muted small' }, h('a', { href: r.manual.url, target: '_blank', rel: 'noopener' }, 'Open the PDF'), ` · ${r.manual.publisher}. Reading it costs a little more than photos (roughly 20–70¢); the guide is saved so it’s free next time.`),
+      h('button', { class: 'btn', id: 'unconfirmSeat', onclick: async () => { build.seatManual.confirmed = false; await saveBuild(); render(); } }, 'Don’t use this'));
+    return card;
+  }
+  const brand = h('input', { type: 'text', id: 'seat_brand', placeholder: 'Brand (e.g. Graco)', value: st.brand, oninput: e => { st.brand = e.target.value; sync(); } });
+  const model = h('input', { type: 'text', id: 'seat_model', placeholder: 'Model name or number (e.g. 4Ever DLX)', value: st.model, oninput: e => { st.model = e.target.value; sync(); } });
+  const find = h('button', { class: 'btn block', id: 'findSeat', style: 'margin-top:10px', onclick: () => guarded(async () => {
+    const cached = !sm && seatCache.get(st);
+    let res = cached?.result;
+    if (!res) res = await busy(`Finding the ${st.brand} ${st.model} manual…`, sig => apiFindSeatManual(st, sig, build.id));
+    build.seatManual = { result: res, usable: seatLookupUsable(res), confirmed: false, at: Date.now() };
+    if (build.seatManual.usable) seatCache.set(st, { result: res });
+    await saveBuild(); render();
+  }) }, sm ? 'Search again' : 'Find my seat’s manual');
+  const sync = () => { find.disabled = !(st.brand.trim() && st.model.trim()); }; sync();
+  card.append(h('div', { class: 'row', style: 'margin-top:8px' }, h('div', { class: 'grow' }, brand), h('div', { class: 'grow' }, model)));
+  if (sm?.failReason) card.append(h('div', { class: 'banner warn', id: 'seatNotFound' }, sm.failReason));
+  else if (sm && !sm.usable) card.append(h('div', { class: 'banner warn', id: 'seatNotFound' }, `Couldn’t find the manufacturer’s own manual. ${!r?.found ? (r?.notFoundReason || '') : 'Only a non-official source turned up.'} Upload the manual below instead.`));
+  else if (sm?.usable) card.append(h('p', {}, 'Found: ', h('a', { href: r.manual.url, target: '_blank', rel: 'noopener', id: 'seatManualLink' }, r.manual.title), h('span', { class: 'muted small' }, ` · ${r.manual.publisher}`)),
+    r.matchNotes ? h('p', { class: 'muted small' }, r.matchNotes) : null,
+    h('p', { class: 'small' }, 'Open the link and check it’s your seat’s model. Reading it costs roughly 20–70¢.'),
+    h('button', { class: 'btn primary block', id: 'confirmSeat', onclick: async () => { build.seatManual.confirmed = true; await logEvent({ type: 'seatConfirm', buildId: build.id, model: Settings.load().models.vehicle, right: true }); await saveBuild(); render(); } }, 'Yes, that’s my seat'));
+  card.append(find);
+  return card;
+}
 function vehicleLookupCard() {
   const v = build.vehicle || {}; const vm = build.vehicleManual; const r = vm?.result;
   const car = `${v.year} ${v.make} ${v.model}`;
@@ -984,12 +1044,24 @@ function factsList(r) {
 }
 async function readManual() {
   const vf = confirmedVehicleFacts(build);
-  let hash = await hashPages(build.pages);
+  const seatUrl = seatOnlineUrl(build);
+  let hash = seatUrl ? `url:${seatUrl}:${await hashPages(build.pages)}` : await hashPages(build.pages);
   if (vf.length) hash += ':vf:' + vehicleKey(build.vehicle) + ':' + vf.length;
   const cached = guideCache.get(hash);
   if (cached) { build.guide = cached.guide; build.manualHash = hash; }
   else {
-    const guide = await busy('Reading the manual…', (sig, sub) => apiParseManual(build, sig, n => sub(`${n.toLocaleString()} characters written`)));
+    let guide;
+    try { guide = await busy(seatUrl ? 'Reading the manual from the web…' : 'Reading the manual…', (sig, sub) => apiParseManual(build, sig, n => sub(`${n.toLocaleString()} characters written`))); }
+    catch (e) {
+      if (seatUrl && e instanceof ApiError && e.status === 400) {
+        const big = /too long|too large|maximum|pages/i.test(e.message);
+        const msg = big ? 'That manual is too long to read in one go. Upload just the pages you need instead (the page picker lets you choose a range).' : 'BuildLens couldn’t open that manual from the web (the site may block downloads). Upload the manual’s pages or PDF instead.';
+        build.seatManual = { ...build.seatManual, confirmed: false, usable: false, failReason: msg }; await saveBuild();
+        render(); // so the screen behind the error shows the upload option
+        throw new UserError(msg);
+      }
+      throw e;
+    }
     if (!guide?.steps?.length) throw new UserError("Couldn't find any steps in those pages. Check the pages are in order and readable.");
     guide.steps.sort((a, b) => a.n - b.n);
     build.guide = guide; build.manualHash = hash;
