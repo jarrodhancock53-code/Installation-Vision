@@ -1,0 +1,1165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>BuildLens</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+:root{
+  --bg:#0b0f14; --panel:#151b23; --panel2:#1d2530; --line:#2c3644; --text:#eef2f6; --muted:#9aa7b6;
+  --accent:#22c55e; --accent-ink:#04210f; --cyan:#06b6d4; --amber:#f59e0b; --red:#ef4444; --blue:#60a5fa;
+  --radius:12px; --tap:48px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+body{min-height:100vh;min-height:100dvh;padding-bottom:160px}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--blue)}
+header.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:8px;padding:10px 16px;padding-top:calc(10px + env(safe-area-inset-top));background:rgba(11,15,20,.95);border-bottom:1px solid var(--line)}
+header.top h1{font-size:18px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconbtn{min-width:var(--tap);min-height:40px;border-radius:10px;border:1px solid var(--line);background:var(--panel);padding:0 12px;cursor:pointer}
+main{max-width:760px;margin:0 auto;padding:16px}
+h2{font-size:20px;margin:8px 0 12px}
+h3{font-size:16px;margin:18px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+p{margin:8px 0}
+.muted{color:var(--muted)}
+.small{font-size:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:10px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grow{flex:1}
+.btn{min-height:var(--tap);border-radius:var(--radius);border:1px solid var(--line);background:var(--panel2);padding:10px 16px;cursor:pointer;font-weight:600;text-align:center}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{border-color:var(--red);color:#fecaca}
+.btn.block{display:block;width:100%}
+.btn.choice{display:block;width:100%;text-align:left;margin:8px 0;padding:14px 16px}
+.btn.choice.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:15;background:rgba(11,15,20,.97);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+.bar .inner{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+.bar .sec{display:flex;gap:8px}
+.bar .sec .btn{flex:1;min-height:44px;font-weight:500;padding:8px}
+label.f{display:block;margin:12px 0 4px;font-weight:600}
+input[type=text],input[type=password],input[type=number],input[type=url],select{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--line);background:var(--bg);padding:8px 12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:4px 10px;font-size:14px}
+.chip.g{border-color:var(--accent)} .chip.a{border-color:var(--amber)} .chip.c{border-color:var(--cyan)} .chip.r{border-color:var(--red)}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.thumb{position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#000}
+.thumb img{display:block;width:100%;height:120px;object-fit:contain}
+.thumb .n{position:absolute;left:4px;top:4px;background:rgba(0,0,0,.7);border-radius:6px;padding:0 6px;font-size:12px}
+.thumb .acts{display:flex}
+.thumb .acts button{flex:1;min-height:36px;border:0;border-top:1px solid var(--line);background:var(--panel);cursor:pointer}
+.stage{position:relative;margin:0 -16px;background:#000}
+.stage canvas{display:block;margin:0 auto;touch-action:manipulation}
+.inset{position:absolute;left:8px;bottom:8px;width:30%;max-width:220px;border:2px solid #fff;border-radius:8px;background:#fff;cursor:zoom-in}
+.inset img{display:block;width:100%}
+.instr{font-size:19px;line-height:1.35;font-weight:600;margin:10px 0}
+.banner{border-radius:var(--radius);padding:12px 14px;margin:10px 0;font-weight:600}
+.banner.ok{background:#0f3d22;border:1px solid var(--accent)}
+.banner.bad{background:#3d1212;border:1px solid var(--red)}
+.banner.warn{background:#3a2a07;border:1px solid var(--amber)}
+.banner.info{background:#0c2a3a;border:1px solid var(--cyan)}
+.steps-nav{display:flex;align-items:center;gap:8px;margin:0 0 6px}
+.phases{display:flex;gap:4px;margin:6px 0 10px}
+.phases span{flex:1;text-align:center;font-size:13px;padding:4px 0;border-radius:6px;background:var(--panel);border:1px solid var(--line);color:var(--muted)}
+.phases span.on{border-color:var(--accent);color:var(--text);font-weight:700}
+.phases span.done{color:var(--accent)}
+.check{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--line);border-radius:var(--radius);margin:8px 0;background:var(--panel);cursor:pointer}
+.check input{width:26px;height:26px;flex:none;margin:2px 0 0;accent-color:var(--accent)}
+.check b{display:block}
+table.log{width:100%;border-collapse:collapse;font-size:13px}
+table.log th,table.log td{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:top}
+.tablewrap{overflow-x:auto}
+#busy{position:fixed;inset:0;z-index:50;background:rgba(5,8,12,.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center}
+#busy[hidden],#modal[hidden]{display:none}
+.spinner{width:44px;height:44px;border-radius:50%;border:4px solid var(--line);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#busyText{font-size:18px;font-weight:600;max-width:420px}
+#modal{position:fixed;inset:0;z-index:60;background:rgba(5,8,12,.8);display:flex;align-items:flex-end;justify-content:center}
+#modal .sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px 16px 0 0;width:100%;max-width:760px;max-height:90vh;overflow:auto;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+#modal .sheet.full{max-height:100vh;height:100vh;border-radius:0;padding:0;background:#000;display:flex;flex-direction:column}
+#modal .sheet.full img{max-width:100%;max-height:calc(100vh - 60px);object-fit:contain;margin:auto;display:block}
+.fb{display:flex;align-items:center;gap:8px;margin:8px 0}
+.fb button{min-height:40px;min-width:56px}
+.fb button.sel{border-color:var(--accent);background:#0f3d22}
+.empty{padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:var(--radius)}
+ul.plain{padding-left:20px;margin:6px 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="iconbtn" id="homeBtn" aria-label="Home">⌂</button>
+  <h1 id="title">BuildLens</h1>
+  <button class="iconbtn" id="logBtn" aria-label="Session log">Log</button>
+  <button class="iconbtn" id="setBtn" aria-label="Settings">⚙</button>
+</header>
+<main id="app"></main>
+<div class="bar" id="bar" hidden><div class="inner" id="barInner"></div></div>
+<div id="busy" hidden role="alertdialog" aria-live="polite">
+  <div class="spinner"></div>
+  <div id="busyText">Working…</div>
+  <div id="busySub" class="muted small"></div>
+  <button class="btn" id="busyCancel">Cancel</button>
+</div>
+<div id="modal" hidden></div>
+<input type="file" id="camIn" accept="image/*" capture="environment" hidden>
+<input type="file" id="fileIn" accept="image/*,application/pdf" multiple hidden>
+
+<script type="module">
+// ======================================================================
+// BuildLens — photo-by-photo assembly coach. Single file, no build step.
+// ======================================================================
+const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs';
+const PDFJS_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+const API_URL = 'https://api.anthropic.com/v1/messages';
+const API_VERSION = '2026-10-21';
+const MAX_EDGE = 2576;        // current models' image limit; coordinates map 1:1
+const PAGE_EDGE = 1800;       // manual pages
+const CROP_EDGE = 512;        // inventory reference crops
+const RANGE_OVER = 40;        // ask for a page range above this
+const MAX_PAGES = 60;         // per parse call (keeps the request under the API's 32 MB limit)
+const MAX_BODY = 30e6;
+const LOW_CONF = 0.5;
+const FALLBACK_MODELS = new Set(['claude-opus-5-5', 'claude-sonnet-5-5']);
+const MODEL_OPTIONS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
+const DEFAULT_PRICES = { // USD per million tokens [input, output]
+  'claude-opus-5-5': [4, 20], 'claude-sonnet-5-5': [2, 10], 'claude-haiku-5-5': [0.10, 0.50],
+};
+const TECH_URL = 'https://cert.safekids.org/';
+const CATEGORY_LABEL = { car_seat: 'Car seat', furniture: 'Furniture', generic: 'Other product' };
+const JOB_LABEL = { install: 'First install', move: 'Move to another car', check: 'Check an existing install', convert: 'Convert mode' };
+
+// ---------------------------------------------------------------- utils
+const $ = (s, r = document) => r.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+    else if (k === 'html') el.innerHTML = v;
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+class UserError extends Error {}
+class ApiError extends Error {
+  constructor(msg, { kind = 'api', retryable = false, status = 0 } = {}) { super(msg); this.kind = kind; this.retryable = retryable; this.status = status; }
+}
+const money = v => '$' + (v < 0.01 ? v.toFixed(4) : v.toFixed(2));
+
+// ---------------------------------------------------------------- settings
+const SETTINGS_KEY = 'bl:settings';
+const Settings = {
+  defaults() {
+    return {
+      conn: 'direct', apiKey: '', proxyUrl: '', passcode: '',
+      models: { parse: 'claude-opus-5-5', inventory: 'claude-sonnet-5-5', step: 'claude-sonnet-5-5', check: 'claude-sonnet-5-5' },
+      prices: { ...DEFAULT_PRICES },
+    };
+  },
+  load() {
+    let s = null;
+    try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'); } catch { s = null; }
+    const d = this.defaults();
+    if (!s) return d;
+    return { ...d, ...s, models: { ...d.models, ...(s.models || {}) }, prices: { ...d.prices, ...(s.prices || {}) } };
+  },
+  save(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) { console.warn(e); } },
+  ready(s = this.load()) { return s.conn === 'proxy' ? !!(s.proxyUrl && s.passcode) : !!s.apiKey; },
+};
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn(e); } };
+
+// ---------------------------------------------------------------- IndexedDB
+const DB = {
+  db: null,
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('buildlens', 1);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        d.createObjectStore('blobs');
+        d.createObjectStore('builds', { keyPath: 'id' });
+        d.createObjectStore('log', { keyPath: 'id', autoIncrement: true });
+      };
+      r.onsuccess = () => { this.db = r.result; res(this.db); };
+      r.onerror = () => rej(r.error);
+    });
+  },
+  async tx(store, mode, fn) {
+    const d = await this.open();
+    return new Promise((res, rej) => {
+      const t = d.transaction(store, mode); const s = t.objectStore(store);
+      let out; const r = fn(s); if (r) r.onsuccess = () => { out = r.result; };
+      t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+    });
+  },
+  put(store, val, key) { return this.tx(store, 'readwrite', s => key === undefined ? s.put(val) : s.put(val, key)); },
+  get(store, key) { return this.tx(store, 'readonly', s => s.get(key)); },
+  del(store, key) { return this.tx(store, 'readwrite', s => s.delete(key)); },
+  all(store) { return this.tx(store, 'readonly', s => s.getAll()); },
+};
+async function putBlob(blob) { const k = 'b_' + uid(); await DB.put('blobs', blob, k); return k; }
+const getBlob = k => DB.get('blobs', k);
+const bitmapCache = new Map();
+async function getBitmap(k) {
+  if (bitmapCache.has(k)) { const p = bitmapCache.get(k); bitmapCache.delete(k); bitmapCache.set(k, p); return p; }
+  const p = getBlob(k).then(b => { if (!b) throw new Error('Missing image ' + k); return createImageBitmap(b); });
+  bitmapCache.set(k, p);
+  while (bitmapCache.size > 6) { const [old, op] = bitmapCache.entries().next().value; bitmapCache.delete(old); op.then(b => b.close?.()).catch(() => {}); } // keep memory low on phones
+  return p;
+}
+const urlCache = new Map();
+async function blobUrl(k) {
+  if (!urlCache.has(k)) { const b = await getBlob(k); if (!b) return ''; urlCache.set(k, URL.createObjectURL(b)); }
+  return urlCache.get(k);
+}
+function blobToB64(blob) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
+}
+
+// ---------------------------------------------------------------- images
+async function decodeImage(file) {
+  try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch (e) {
+    const heic = /hei[cf]/i.test(file.type || '') || /\.hei[cf]$/i.test(file.name || '');
+    throw new UserError(heic ? "This photo is HEIC, which this browser can't read. Please use a JPEG or PNG." : 'Could not read that image. Please try another photo.');
+  }
+}
+function canvasToBlob(c, q = 0.85) { return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('encode failed')), 'image/jpeg', q)); }
+async function prepImage(file, maxEdge = MAX_EDGE, q = 0.85) {
+  const bmp = await decodeImage(file);
+  const s = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * s)), hh = Math.max(1, Math.round(bmp.height * s));
+  const c = document.createElement('canvas'); c.width = w; c.height = hh;
+  c.getContext('2d').drawImage(bmp, 0, 0, w, hh);
+  bmp.close?.();
+  return { blob: await canvasToBlob(c, q), w, h: hh };
+}
+async function storePhoto(file, maxEdge = MAX_EDGE) {
+  const { blob, w, h } = await prepImage(file, maxEdge);
+  return { key: await putBlob(blob), w, h };
+}
+function normBox(b, w, hh) {
+  if (!Array.isArray(b) || b.length < 4 || b.some(v => typeof v !== 'number' || !isFinite(v))) return null;
+  let [x, y, bw, bh] = b;
+  x = clamp(x, 0, w); y = clamp(y, 0, hh); bw = clamp(bw, 0, w - x); bh = clamp(bh, 0, hh - y);
+  return bw >= 2 && bh >= 2 ? [x, y, bw, bh] : null;
+}
+async function cropToBlob(key, box, w, hh, pad = 0.12, maxEdge = CROP_EDGE) {
+  const bmp = await getBitmap(key);
+  const sx = bmp.width / w, sy = bmp.height / hh;
+  const b = normBox(box, w, hh); if (!b) return null;
+  const px = b[2] * pad, py = b[3] * pad;
+  const x0 = clamp((b[0] - px) * sx, 0, bmp.width), y0 = clamp((b[1] - py) * sy, 0, bmp.height);
+  const x1 = clamp((b[0] + b[2] + px) * sx, 0, bmp.width), y1 = clamp((b[1] + b[3] + py) * sy, 0, bmp.height);
+  const cw = x1 - x0, ch = y1 - y0; if (cw < 4 || ch < 4) return null;
+  const s = Math.min(1, maxEdge / Math.max(cw, ch));
+  const c = document.createElement('canvas'); c.width = Math.round(cw * s); c.height = Math.round(ch * s);
+  c.getContext('2d').drawImage(bmp, x0, y0, cw, ch, 0, 0, c.width, c.height);
+  return { blob: await canvasToBlob(c, 0.85), w: c.width, h: c.height };
+}
+
+// ---------------------------------------------------------------- pdf
+let pdfjsP = null;
+function loadPdfjs() {
+  if (!pdfjsP) pdfjsP = import(PDFJS_URL).then(m => { m.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; return m; })
+    .catch(e => { pdfjsP = null; throw new UserError('Could not load the PDF reader. Check your connection, or photograph the pages instead.'); });
+  return pdfjsP;
+}
+async function openPdf(file) {
+  const pdfjs = await loadPdfjs();
+  try { return await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise; }
+  catch (e) { throw new UserError('Could not open that PDF. It may be damaged or password protected.'); }
+}
+async function renderPdfPages(doc, from, to, onProgress) {
+  const out = [];
+  for (let p = from; p <= to; p++) {
+    onProgress?.(p - from + 1, to - from + 1);
+    const page = await doc.getPage(p);
+    const vp1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: PAGE_EDGE / Math.max(vp1.width, vp1.height) });
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    const blob = await canvasToBlob(c, 0.82);
+    out.push({ key: await putBlob(blob), w: c.width, h: c.height, pdfPage: p });
+    page.cleanup();
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- hashing
+async function hashPages(pages) {
+  const parts = [];
+  for (const p of pages) { const b = await getBlob(p.key); parts.push(new Uint8Array(await b.arrayBuffer())); parts.push(new TextEncoder().encode('|' + p.source + '|')); }
+  const total = parts.reduce((a, b) => a + b.length, 0); const all = new Uint8Array(total); let o = 0;
+  for (const x of parts) { all.set(x, o); o += x.length; }
+  if (crypto?.subtle) {
+    const d = await crypto.subtle.digest('SHA-256', all);
+    return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  let hsh = 2166136261; for (const b of all) { hsh ^= b; hsh = Math.imul(hsh, 16777619); } // FNV-1a fallback (non-secure contexts)
+  return 'fnv' + (hsh >>> 0).toString(16) + '_' + total;
+}
+// A hash of the rendered pages changes if rendering changes, so we also key PDFs by file bytes.
+async function hashFiles(files) {
+  const bufs = await Promise.all(files.map(f => f.arrayBuffer()));
+  const all = new Uint8Array(bufs.reduce((a, b) => a + b.byteLength, 0)); let o = 0;
+  for (const b of bufs) { all.set(new Uint8Array(b), o); o += b.byteLength; }
+  if (crypto?.subtle) { const d = await crypto.subtle.digest('SHA-256', all); return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+  let hsh = 2166136261; for (const b of all) { hsh ^= b; hsh = Math.imul(hsh, 16777619); } return 'fnv' + (hsh >>> 0).toString(16) + '_' + all.length;
+}
+const GUIDE_CACHE = 'bl:guides';
+const guideCache = { all() { return lsGet(GUIDE_CACHE) || {}; }, get(k) { return this.all()[k] || null; },
+  set(k, v) { const a = this.all(); a[k] = v; lsSet(GUIDE_CACHE, a); }, del(k) { const a = this.all(); delete a[k]; lsSet(GUIDE_CACHE, a); } };
+
+// ---------------------------------------------------------------- Claude API
+function priceFor(model) {
+  const s = Settings.load(); const key = Object.keys(s.prices).find(k => model && model.startsWith(k));
+  return s.prices[key] || [0, 0];
+}
+function costOf(model, u = {}) {
+  const [pi, po] = priceFor(model);
+  return ((u.input_tokens || 0) * pi + (u.cache_creation_input_tokens || 0) * pi * 1.25 + (u.cache_read_input_tokens || 0) * pi * 0.1 + (u.output_tokens || 0) * po) / 1e6;
+}
+async function readSSE(resp, onProgress) {
+  const reader = resp.body.getReader(); const dec = new TextDecoder();
+  let buf = '', text = '', usage = {}, stop = null, model = null, err = null;
+  const handle = (raw) => {
+    const data = raw.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trimStart()).join('\n');
+    if (!data) return; let ev; try { ev = JSON.parse(data); } catch { return; }
+    switch (ev.type) {
+      case 'message_start': usage = { ...(ev.message?.usage || {}) }; model = ev.message?.model || model; break;
+      case 'content_block_start': if (ev.content_block?.type === 'fallback') text = ''; break; // a fallback model restarts the answer
+      case 'content_block_delta': if (ev.delta?.type === 'text_delta') { text += ev.delta.text; onProgress?.(text.length); } break;
+      case 'message_delta': if (ev.delta?.stop_reason) stop = ev.delta.stop_reason; if (ev.usage) usage = { ...usage, ...ev.usage }; break;
+      case 'error': err = ev.error || { message: 'Unknown streaming error' }; break;
+    }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buf += dec.decode(value, { stream: true });
+    let i; while ((i = buf.search(/\r?\n\r?\n/)) >= 0) { handle(buf.slice(0, i).replace(/\r/g, '')); buf = buf.slice(buf.slice(i).match(/^\r?\n\r?\n/)[0].length + i); }
+    if (done) { if (buf.trim()) handle(buf.replace(/\r/g, '')); break; }
+  }
+  return { text, usage, stop, model, err };
+}
+async function callClaude({ call, model, system, guideJson, content, schema, effort, maxTokens = 8000, signal, onProgress, buildId }) {
+  const s = Settings.load();
+  if (!Settings.ready(s)) throw new UserError('Add your API key (or proxy passcode) in Settings first.');
+  const sys = [{ type: 'text', text: `CALL: ${call}\n\n${system}` }];
+  if (guideJson) sys.push({ type: 'text', text: 'GUIDE JSON (the parsed manual for this build):\n' + guideJson, cache_control: { type: 'ephemeral' } });
+  else sys[0].cache_control = { type: 'ephemeral' };
+  const body = { model, max_tokens: maxTokens, stream: true, system: sys, messages: [{ role: 'user', content }],
+    output_config: { format: { type: 'json_schema', schema } } };
+  if (effort) body.output_config.effort = effort;
+  const headers = { 'content-type': 'application/json', 'anthropic-version': API_VERSION };
+  if (FALLBACK_MODELS.has(model)) { body.fallbacks = 'default'; headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; }
+  let url;
+  if (s.conn === 'proxy') { url = s.proxyUrl.replace(/\/+$/, ''); if (!/\/v1\/messages$/.test(url)) url += '/v1/messages'; headers['x-buildlens-passcode'] = s.passcode; }
+  else { url = API_URL; headers['x-api-key'] = s.apiKey; headers['anthropic-dangerous-direct-browser-access'] = 'true'; }
+  if (sessionStorage.getItem('bl:noFallbacks')) { delete body.fallbacks; delete headers['anthropic-beta']; }
+  if (JSON.stringify(body).length > MAX_BODY) throw new UserError('That is too much to send at once. Remove pages you don’t need (other languages, warranty pages) and try again.');
+  const t0 = performance.now(); let resp, lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal }); }
+    catch (e) {
+      if (e.name === 'AbortError') throw e;
+      lastErr = new ApiError("No connection. Your photo is saved — tap Retry when you're back online.", { kind: 'offline', retryable: true });
+      if (attempt === 0) { await sleep(2000); continue; } break;
+    }
+    if ([429, 500, 529].includes(resp.status) && attempt === 0) { await sleep(2000); continue; }
+    if (resp.status === 400 && body.fallbacks && attempt === 0) {
+      // The refusal-fallback beta may not be enabled for this key: retry once without it and remember.
+      const t = await resp.clone().text().catch(() => '');
+      if (/fallback|beta/i.test(t)) { try { sessionStorage.setItem('bl:noFallbacks', '1'); } catch {} delete body.fallbacks; delete headers['anthropic-beta']; continue; }
+    }
+    break;
+  }
+  if (!resp) { await logCall({ buildId, call, model, ok: false, error: lastErr.message, latencyMs: performance.now() - t0 }); throw lastErr; }
+  if (!resp.ok) {
+    let msg = `The AI service returned an error (${resp.status}).`;
+    try { const j = await resp.json(); if (j?.error?.message) msg += ' ' + j.error.message; } catch {}
+    if (resp.status === 401) msg = s.conn === 'proxy' ? 'The proxy rejected the passcode. Check it in Settings.' : 'The API key was rejected. Check it in Settings.';
+    const err = new ApiError(msg, { status: resp.status, retryable: [408, 429, 500, 502, 503, 504, 529].includes(resp.status) });
+    await logCall({ buildId, call, model, ok: false, error: msg, latencyMs: performance.now() - t0 }); throw err;
+  }
+  let r;
+  try { r = await readSSE(resp, onProgress); }
+  catch (e) { if (e.name === 'AbortError') throw e; throw new ApiError('The connection dropped mid-answer. Tap Retry.', { kind: 'offline', retryable: true }); }
+  const latencyMs = performance.now() - t0; const served = r.model || model; const cost = costOf(served, r.usage);
+  const entry = { buildId, call, model, servedModel: served, latencyMs, usage: r.usage, cost, stopReason: r.stop, ok: false };
+  if (r.err) { entry.error = r.err.message; await logCall(entry); throw new ApiError('The AI service had a problem: ' + (r.err.message || 'unknown'), { retryable: true }); }
+  if (r.stop === 'refusal') { entry.error = 'refusal'; await logCall(entry); throw new ApiError('The AI declined this request. Try again, or take a different photo.', { kind: 'refusal', retryable: true }); }
+  if (r.stop === 'max_tokens') { entry.error = 'max_tokens'; await logCall(entry); throw new ApiError('The answer was cut off before it finished. Try again, or use fewer manual pages.', { retryable: true }); }
+  let data; try { data = JSON.parse(r.text); } catch { entry.error = 'bad json'; await logCall(entry); throw new ApiError('The AI returned something unreadable. Tap Retry.', { retryable: true }); }
+  entry.ok = true; await logCall(entry);
+  return data;
+}
+async function logCall(e) { try { await DB.put('log', { ts: Date.now(), type: 'call', ...e }); } catch (x) { console.warn(x); } }
+async function logEvent(e) { try { await DB.put('log', { ts: Date.now(), ...e }); } catch (x) { console.warn(x); } }
+
+// ---------------------------------------------------------------- schemas
+const S = { type: 'string' }, I = { type: 'integer' }, N = { type: 'number' };
+const arr = items => ({ type: 'array', items });
+const obj = props => ({ type: 'object', properties: props, required: Object.keys(props), additionalProperties: false });
+const BOX = { type: 'array', items: N, description: '[x, y, width, height] in pixels of the image as sent' };
+const NSTR = { anyOf: [S, { type: 'null' }] };
+const GUIDE_SCHEMA = obj({
+  product: obj({ name: S, brand: S, model: S, category: { type: 'string', enum: ['car_seat', 'furniture', 'generic'] } }),
+  modes: arr(obj({ id: S, label: S, description: S })),
+  parts: arr(obj({ id: S, name: S, qty: I, description: S, visualCues: S })),
+  hardware: arr(obj({ id: S, name: S, qty: I, sizeHint: S })),
+  tools: arr(S),
+  vehicleFacts: arr(obj({ fact: S, vehiclePage: I })),
+  steps: arr(obj({
+    n: I, title: S, instruction: S, modes: arr(S), parts: arr(S), hardware: arr(obj({ id: S, qty: I })), tools: arr(S),
+    manualPage: I, manualBox: BOX, cautions: arr(S), checkCriteria: arr(S), humanChecks: arr(obj({ check: S, howTo: S })),
+  })),
+});
+const DETECT_SCHEMA = obj({
+  items: arr(obj({ ref: S, box: BOX, confidence: N })),
+  missing: arr(S),
+  uncertain: arr(obj({ box: BOX, candidates: arr(S) })),
+  vehicleMarks: arr(obj({ kind: { type: 'string', enum: ['lower_anchor', 'tether_anchor', 'belt_path', 'buckle', 'other'] }, label: S, box: BOX, confidence: N })),
+  retakeHint: NSTR,
+});
+const OVERLAY_SCHEMA = obj({
+  instruction: S,
+  highlights: arr(obj({ ref: S, role: { type: 'string', enum: ['use', 'target', 'tool', 'hazard'] }, label: S, box: BOX, confidence: N })),
+  arrows: arr(obj({ from: arr(N), to: arr(N), label: S })),
+  notVisible: arr(S),
+  retakeHint: NSTR,
+});
+const CHECK_SCHEMA = obj({
+  verdict: { type: 'string', enum: ['pass', 'fix', 'unsure'] }, summary: S,
+  issues: arr(obj({ box: BOX, problem: S, fix: S })), retakeHint: NSTR,
+});
+
+// ---------------------------------------------------------------- prompts
+const STEP_RULES = `You are guiding a non-expert who is holding a phone. Use the part letters and hardware numbers from the guide.
+Rules:
+- Only box things you can see in this photo. If a needed part is not visible, list it in notVisible and never guess a box.
+- Identify parts by matching the inventory reference crops when provided, not by general appearance.
+- If the photo is too dark, blurry, or cropped to judge, return retakeHint with one concrete instruction (e.g. "step back so both panels are in frame"). Otherwise retakeHint is null.
+- One action per instruction, 30 words or less, referencing what is visible ("the panel by your left foot").
+- Boxes are [x, y, width, height] in pixels of the PHOTO as sent (its size is given). confidence is 0 to 1; use under 0.5 when unsure.
+- Never state a vehicle-specific fact (tether anchor location, lower-anchor seating positions, belt locking, inflatable belts, headrest removal) unless it comes from the guide's vehicleFacts (taken from a vehicle manual). Otherwise tell the user to confirm it by hand.
+- In checkStep, never return pass for anything listed in humanChecks. Those are for the user to confirm by hand.`;
+const PARSE_SYSTEM = `You turn an assembly or installation manual into a structured step-by-step guide.
+- Read every page including wordless diagrams. Number steps exactly as the manual does.
+- Page images are labeled "Manual page N" (and "Vehicle manual page N" for vehicle pages). manualPage is that N for the step's drawing. manualBox is the [x, y, width, height] of that step's drawing on that page image, in that image's pixels; [0,0,0,0] if unclear.
+- Split install modes (e.g. rear-facing with lower anchors, rear-facing with seat belt, forward-facing, booster) into modes; each step lists the mode ids it applies to (empty list = all modes).
+- parts use the manual's letters (A, B, ...) as id; hardware uses the manual's numbers as id. sizeHint describes size and look; visualCues says how to tell a part from lookalikes.
+- checkCriteria: things a photo can verify. humanChecks: things only a hands-on check can verify (tightness, harness pinch test, recline indicator, cam locks turned, screws fully tight), each with a one-line howTo.
+- vehicleFacts: ONLY facts read from vehicle manual pages, with vehicleManual page number. If no vehicle manual pages were given, return an empty list, and for every step that depends on the car (tether anchor, lower anchor positions, belt locking, inflatable belts, headrest removal) add a humanCheck with a how-to (e.g. "Find the tether anchor symbol on the seat back or rear shelf. It is not a cargo hook."). Never state vehicle facts from general knowledge.
+- Keep instructions plain and short.`;
+
+function guideForCalls(build) {
+  const g = build.guide; if (!g) return '';
+  const steps = activeSteps(build);
+  return JSON.stringify({ product: g.product, mode: build.modeId || null, parts: g.parts, hardware: g.hardware, tools: g.tools, vehicleFacts: g.vehicleFacts,
+    vehicle: build.category === 'car_seat' ? build.vehicle : undefined, steps: steps.map(s => ({ n: s.n, title: s.title, instruction: s.instruction, parts: s.parts, hardware: s.hardware, tools: s.tools, cautions: s.cautions, checkCriteria: s.checkCriteria, humanChecks: s.humanChecks })) });
+}
+async function imgBlock(key) { const b = await getBlob(key); return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await blobToB64(b) } }; }
+async function manualCropBlock(build, step) {
+  const p = (build.pages || []).filter(x => x.source === 'seat')[step.manualPage - 1];
+  if (!p) return null;
+  const box = normBox(step.manualBox, p.w, p.h);
+  if (box) { const c = await cropToBlob(p.key, box, p.w, p.h, 0.04, 1400); if (c) return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await blobToB64(c.blob) } }; }
+  return imgBlock(p.key);
+}
+
+async function apiParseManual(build, signal, onProgress) {
+  const s = Settings.load(); const content = [];
+  const v = build.vehicle || {};
+  content.push({ type: 'text', text: `Product category chosen by the user: ${build.category}.` + (build.category === 'car_seat' ? ` Vehicle: ${v.year || '?'} ${v.make || '?'} ${v.model || '?'}. Vehicle manual pages provided: ${build.pages.some(p => p.source === 'vehicle') ? 'yes' : 'no'}.` : '') });
+  let n = 0, vn = 0;
+  for (const p of build.pages) {
+    const label = p.source === 'vehicle' ? `Vehicle manual page ${++vn}` : `Manual page ${++n}`;
+    content.push({ type: 'text', text: `${label} (${p.w}×${p.h} px):` });
+    content.push(await imgBlock(p.key));
+  }
+  content.push({ type: 'text', text: 'Return the complete guide.' });
+  return callClaude({ call: 'parseManual', model: s.models.parse, system: PARSE_SYSTEM, content, schema: GUIDE_SCHEMA, effort: 'medium', maxTokens: 64000, signal, onProgress, buildId: build.id });
+}
+async function apiScanInventory(build, photo, signal) {
+  const s = Settings.load(); const car = build.category === 'car_seat';
+  const ask = car
+    ? 'This photo shows the vehicle back seat. Mark only visible cues in vehicleMarks: lower anchors (or their symbol tags/buttons), the tether anchor symbol, the seat belt path, buckles. If an anchor is not visibly marked, do not box it. Also tag any car seat parts from the guide in items.'
+    : 'This photo shows the parts laid out. Tag each visible part with its letter (items). List guide parts you cannot find in missing. Put things you cannot tell apart in uncertain with candidate letters.';
+  const content = [{ type: 'text', text: `${ask}\nPHOTO (${photo.w}×${photo.h} px):` }, await imgBlock(photo.key)];
+  return callClaude({ call: 'scanInventory', model: s.models.inventory, system: STEP_RULES, guideJson: guideForCalls(build), content, schema: DETECT_SCHEMA, effort: 'low', signal, buildId: build.id });
+}
+async function apiGuideStep(build, step, phase, photo, hint, signal) {
+  const s = Settings.load(); const content = [];
+  content.push({ type: 'text', text: `Current step ${step.n}: ${step.title}\n${step.instruction}\nThis is the ${phase === 'grab' ? 'GRAB photo of the parts pile: box the parts, hardware and tools to use for this step (role "use"/"tool")' : 'PLACE photo of the build: outline where the parts go (role "target"), box the parts if visible, and draw an arrow from part to target only when both are in this photo'}.` + (hint ? `\nUser correction: ${hint}` : '') });
+  const crop = await manualCropBlock(build, step);
+  if (crop) { content.push({ type: 'text', text: "The manual's drawing for this step:" }); content.push(crop); }
+  const refs = (build.inventory?.crops || []).filter(c => (step.parts || []).includes(c.ref) || (step.hardware || []).some(hw => hw.id === c.ref)).slice(0, 8);
+  for (const c of refs) { content.push({ type: 'text', text: `Inventory reference crop of ${c.ref}:` }); content.push(await imgBlock(c.key)); }
+  content.push({ type: 'text', text: `PHOTO (${photo.w}×${photo.h} px) — all boxes refer to this image:` });
+  content.push(await imgBlock(photo.key));
+  return callClaude({ call: 'guideStep', model: s.models.step, system: STEP_RULES, guideJson: guideForCalls(build), content, schema: OVERLAY_SCHEMA, effort: 'low', signal, buildId: build.id });
+}
+async function apiCheckStep(build, step, photo, signal) {
+  const s = Settings.load(); const content = [];
+  content.push({ type: 'text', text: `Check step ${step.n}: ${step.title}\n${step.instruction}\nCheck criteria (judge from the photo): ${JSON.stringify(step.checkCriteria || [])}\nhumanChecks (never pass these from a photo): ${JSON.stringify((step.humanChecks || []).map(x => x.check))}\nReturn pass only if every check criterion visibly holds; fix with a red box on each problem; unsure with retakeHint if you need another angle.` });
+  const crop = await manualCropBlock(build, step);
+  if (crop) { content.push({ type: 'text', text: "The manual's drawing for this step:" }); content.push(crop); }
+  content.push({ type: 'text', text: `PHOTO (${photo.w}×${photo.h} px):` }); content.push(await imgBlock(photo.key));
+  return callClaude({ call: 'checkStep', model: s.models.check, system: STEP_RULES, guideJson: guideForCalls(build), content, schema: CHECK_SCHEMA, effort: 'low', signal, buildId: build.id });
+}
+
+// ---------------------------------------------------------------- build model
+const BUILD_ACTIVE = 'bl:active';
+let build = null;     // the open build
+let view = { name: 'home' };
+let ui = {};          // transient per-screen state (not persisted)
+async function saveBuild() { if (!build) return; build.updatedAt = Date.now(); await DB.put('builds', build); }
+function activeSteps(b = build) {
+  const st = b?.guide?.steps || [];
+  return b?.modeId ? st.filter(s => !s.modes?.length || s.modes.includes(b.modeId)) : st;
+}
+function curStep() { return activeSteps()[build.stepIndex]; }
+function stepData(i = build.stepIndex) { build.stepData ||= {}; return (build.stepData[i] ||= { feedback: {}, handsOn: {}, fixes: 0 }); }
+function buildName(b) { return b.guide?.product?.name || (CATEGORY_LABEL[b.category] + (b.category === 'car_seat' && b.vehicle?.model ? ` · ${b.vehicle.year} ${b.vehicle.make} ${b.vehicle.model}` : '')); }
+function screenFor(b) { return { MANUAL: 'manual', PARSED: 'review', INVENTORY: 'inventory', STEP: 'step', DONE: 'finished' }[b.state] || 'manual'; }
+async function openBuild(id) {
+  const b = await DB.get('builds', id); if (!b) { lsSet(BUILD_ACTIVE, null); return go('home'); }
+  build = b; lsSet(BUILD_ACTIVE, id); ui = {}; go(screenFor(b));
+}
+function setState(st) { build.state = st; }
+
+// ---------------------------------------------------------------- busy / modal / errors
+let busyCtl = null;
+async function busy(text, fn) {
+  const el = $('#busy'); $('#busyText').textContent = text; $('#busySub').textContent = ''; el.hidden = false;
+  busyCtl = new AbortController();
+  try { return await fn(busyCtl.signal, sub => { $('#busySub').textContent = sub; }); }
+  finally { el.hidden = true; busyCtl = null; }
+}
+$('#busyCancel').onclick = () => busyCtl?.abort();
+function modal(content, { full = false } = {}) {
+  const m = $('#modal'); m.innerHTML = ''; const sheet = h('div', { class: 'sheet' + (full ? ' full' : '') }, content);
+  m.append(sheet); m.hidden = false;
+  m.onclick = e => { if (e.target === m) closeModal(); };
+  return sheet;
+}
+function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; }
+function showError(err, retry) {
+  if (err?.name === 'AbortError') return;
+  if (err instanceof UserError || err instanceof ApiError) console.warn(err.message); else console.error(err);
+  const msg = err instanceof UserError || err instanceof ApiError ? err.message : 'Something went wrong: ' + (err?.message || err);
+  modal([h('h2', {}, err?.kind === 'offline' ? 'No connection' : 'That didn’t work'), h('p', { id: 'errMsg' }, msg),
+    h('div', { class: 'row' }, retry && (err?.retryable || err?.kind === 'offline' || !(err instanceof UserError)) ? h('button', { class: 'btn primary grow', id: 'errRetry', onclick: () => { closeModal(); retry(); } }, 'Retry') : null,
+      h('button', { class: 'btn grow', onclick: closeModal }, 'Close'))]);
+}
+async function guarded(fn, retry) { try { await fn(); } catch (e) { showError(e, retry || (() => guarded(fn))); } }
+
+// file pickers -------------------------------------------------------------
+function pickFiles({ camera = false, multiple = false, accept } = {}) {
+  return new Promise(res => {
+    const inp = camera ? $('#camIn') : $('#fileIn');
+    inp.multiple = !camera && multiple; inp.accept = accept || (camera ? 'image/*' : 'image/*,application/pdf');
+    inp.value = '';
+    // Save state before the camera opens: iOS may kill this tab while the camera app is up.
+    saveBuild().catch(() => {});
+    inp.onchange = () => res([...inp.files]);
+    inp.oncancel = () => res([]);
+    inp.click();
+  });
+}
+
+// ---------------------------------------------------------------- overlay drawing
+const COLORS = { use: '#22C55E', target: '#06B6D4', tool: '#F59E0B', hazard: '#EF4444', issue: '#EF4444', mark: '#06B6D4', tag: '#22C55E', uncertain: '#F59E0B' };
+function shapesFromOverlay(o, w, hh) {
+  const shapes = [], arrows = [];
+  for (const hl of o?.highlights || []) { const b = normBox(hl.box, w, hh); if (b) shapes.push({ box: b, color: COLORS[hl.role] || COLORS.use, fill: hl.role === 'use' || hl.role === 'hazard', dash: hl.role === 'target', label: hl.label || hl.ref, low: (hl.confidence ?? 1) < LOW_CONF, ref: hl }); }
+  for (const a of o?.arrows || []) if (a.from?.length >= 2 && a.to?.length >= 2) arrows.push(a);
+  return { shapes, arrows };
+}
+function drawScene(canvas, bmp, w, hh, { shapes = [], arrows = [], show = true, dim = true }) {
+  const dpr = window.devicePixelRatio || 1; const boxW = canvas.parentElement.clientWidth || 360;
+  const maxH = Math.max(240, window.innerHeight * 0.55);   // keep tall portrait photos on screen, above the button bar
+  const cssW = Math.min(boxW, maxH * w / hh), cssH = cssW * hh / w;
+  canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
+  canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr);
+  const ctx = canvas.getContext('2d'); const k = canvas.width / w; // image px -> canvas px
+  ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  if (!show || (!shapes.length && !arrows.length)) return k;
+  const sx = bmp.width / w, sy = bmp.height / hh;
+  if (dim && shapes.length) {
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (const s of shapes) { const [x, y, bw, bh] = s.box; ctx.drawImage(bmp, x * sx, y * sy, bw * sx, bh * sy, x * k, y * k, bw * k, bh * k); }
+  }
+  const lw = Math.max(2, 3 * dpr);
+  for (const s of shapes) {
+    const [x, y, bw, bh] = s.box.map(v => v * k);
+    ctx.save(); ctx.lineWidth = lw; ctx.strokeStyle = s.color;
+    ctx.setLineDash(s.dash || s.low ? [8 * dpr, 6 * dpr] : []);
+    if (s.fill && !s.low) { ctx.fillStyle = s.color + '33'; ctx.fillRect(x, y, bw, bh); }
+    ctx.strokeRect(x, y, bw, bh); ctx.restore();
+    const text = (s.low ? 'Is this it? ' : '') + (s.label || '');
+    if (text) {
+      ctx.font = `600 ${14 * dpr}px system-ui,sans-serif`; const tw = ctx.measureText(text).width; const ph = 22 * dpr, pw = tw + 16 * dpr;
+      let px = clamp(x, 0, canvas.width - pw), py = y - ph - 4 * dpr; if (py < 0) py = y + 4 * dpr;
+      ctx.fillStyle = s.low ? '#F59E0B' : s.color; roundRect(ctx, px, py, pw, ph, ph / 2); ctx.fill();
+      ctx.fillStyle = '#0b0f14'; ctx.textBaseline = 'middle'; ctx.fillText(text, px + 8 * dpr, py + ph / 2);
+      s.pill = [px / k, py / k, pw / k, ph / k];
+    }
+  }
+  for (const a of arrows) drawArrow(ctx, a.from[0] * k, a.from[1] * k, a.to[0] * k, a.to[1] * k, dpr);
+  return k;
+}
+function roundRect(ctx, x, y, w, hh, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + hh, r); ctx.arcTo(x + w, y + hh, x, y + hh, r); ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function drawArrow(ctx, x1, y1, x2, y2, dpr) {
+  const ang = Math.atan2(y2 - y1, x2 - x1), hl = 18 * dpr;
+  const path = () => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.moveTo(x2, y2); ctx.lineTo(x2 - hl * Math.cos(ang - 0.45), y2 - hl * Math.sin(ang - 0.45)); ctx.moveTo(x2, y2); ctx.lineTo(x2 - hl * Math.cos(ang + 0.45), y2 - hl * Math.sin(ang + 0.45)); };
+  ctx.save(); ctx.lineCap = 'round'; ctx.setLineDash([]);
+  path(); ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.lineWidth = 8 * dpr; ctx.stroke();
+  path(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 4 * dpr; ctx.stroke(); ctx.restore();
+}
+// An image + overlay stage. getScene() returns {shapes, arrows}; onTap(x, y, hitShape) in image px.
+function stageView({ photo, getScene, onTap, inset }) {
+  const canvas = h('canvas', { 'aria-label': 'Photo with guidance overlay' });
+  const wrap = h('div', { class: 'stage' }, canvas, inset || null);
+  let bmp = null, k = 1, scene = { shapes: [], arrows: [] };
+  const redraw = () => { if (!wrap.isConnected && bmp) { ro.disconnect(); return; } if (!bmp) return; if (!bmp.width) { bmp = null; getBitmap(photo.key).then(b => { bmp = b; redraw(); }); return; } scene = getScene(); k = drawScene(canvas, bmp, photo.w, photo.h, { ...scene, show: ui.showOverlay !== false }); canvas.dataset.drawn = String(scene.shapes.length); };
+  getBitmap(photo.key).then(b => { bmp = b; requestAnimationFrame(redraw); }).catch(e => console.error(e));
+  const ro = new ResizeObserver(() => redraw()); ro.observe(wrap);
+  canvas.addEventListener('click', e => {
+    const r = canvas.getBoundingClientRect(); const x = (e.clientX - r.left) * (photo.w / r.width), y = (e.clientY - r.top) * (photo.h / r.height);
+    const inBox = (b) => b && x >= b[0] && x <= b[0] + b[2] && y >= b[1] && y <= b[1] + b[3];
+    const hit = [...scene.shapes].reverse().find(s => inBox(s.pill) || inBox(s.box));
+    onTap?.(x, y, hit);
+  });
+  wrap.redraw = redraw;
+  return wrap;
+}
+async function insetView(build, step) {
+  const p = (build.pages || []).filter(x => x.source === 'seat')[step.manualPage - 1];
+  if (!p) return null;
+  let url; const box = normBox(step.manualBox, p.w, p.h);
+  const ck = `inset:${p.key}:${box?.join(',')}`;
+  if (box) { if (!urlCache.has(ck)) { const c = await cropToBlob(p.key, box, p.w, p.h, 0.04, 900); if (c) urlCache.set(ck, URL.createObjectURL(c.blob)); } url = urlCache.get(ck); }
+  url ||= await blobUrl(p.key);
+  const full = await blobUrl(p.key);
+  return h('div', { class: 'inset', title: "Manual drawing — tap to expand", onclick: e => { e.stopPropagation(); modal([h('div', { class: 'row', style: 'padding:8px' }, h('b', { class: 'grow' }, `Manual page ${step.manualPage}`), h('button', { class: 'btn', onclick: closeModal }, 'Close')), h('img', { src: full, alt: 'Manual page' })], { full: true }); } },
+    h('img', { src: url, alt: `Manual drawing for step ${step.n}` }));
+}
+
+// ---------------------------------------------------------------- rendering shell
+function setBar(primary = [], secondary = []) {
+  const bar = $('#bar'), inner = $('#barInner'); inner.innerHTML = '';
+  const p = primary.filter(Boolean), s = secondary.filter(Boolean);
+  if (!p.length && !s.length) { bar.hidden = true; padForBar(); return; }
+  if (s.length) inner.append(h('div', { class: 'sec' }, s));
+  for (const b of p) inner.append(b);
+  bar.hidden = false;
+  requestAnimationFrame(padForBar);
+}
+function padForBar() { const bar = $('#bar'); document.body.style.paddingBottom = (bar.hidden ? 24 : bar.offsetHeight + 16) + 'px'; }
+window.addEventListener('resize', padForBar);
+function go(name, params = {}) { view = { name, ...params }; render(); window.scrollTo(0, 0); }
+async function render() {
+  const app = $('#app'); app.innerHTML = ''; setBar();
+  $('#title').textContent = build && !['home', 'settings', 'log', 'newbuild'].includes(view.name) ? buildName(build) : 'BuildLens';
+  try { await (SCREENS[view.name] || SCREENS.home)(app); }
+  catch (e) { showError(e); }
+  document.body.dataset.screen = view.name;
+}
+function speak(text) {
+  try { if (!('speechSynthesis' in window)) return; speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch {}
+}
+const speakerBtn = text => h('button', { class: 'iconbtn', 'aria-label': 'Read aloud', onclick: () => speak(text) }, '🔊');
+
+// ---------------------------------------------------------------- screens
+const SCREENS = {};
+
+SCREENS.home = async app => {
+  build = null; lsSet(BUILD_ACTIVE, null);
+  const s = Settings.load();
+  app.append(h('h2', {}, 'Your builds'));
+  if (!Settings.ready(s)) app.append(h('div', { class: 'banner warn' }, 'Add your API key or proxy passcode in Settings before starting.'));
+  const builds = (await DB.all('builds')).sort((a, b) => b.updatedAt - a.updatedAt);
+  if (!builds.length) app.append(h('div', { class: 'empty' }, 'No builds yet. Tap New build to start.'));
+  for (const b of builds) {
+    const n = activeSteps(b).length; const status = b.state === 'DONE' ? 'Finished' : b.state === 'STEP' ? `Step ${b.stepIndex + 1} of ${n}` : { MANUAL: 'Adding manual', PARSED: 'Reviewing guide', INVENTORY: 'Inventory' }[b.state] || b.state;
+    app.append(h('div', { class: 'card build-card' },
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('b', {}, buildName(b)), h('div', { class: 'muted small' }, [CATEGORY_LABEL[b.category], b.job ? JOB_LABEL[b.job] : null, status].filter(Boolean).join(' · '))),
+        h('button', { class: 'btn primary', onclick: () => openBuild(b.id) }, b.state === 'DONE' ? 'Open' : 'Resume'),
+        h('button', { class: 'btn danger', 'aria-label': 'Delete build', onclick: async () => { if (confirm('Delete this build and its photos?')) { await deleteBuild(b); render(); } } }, '✕'))));
+  }
+  setBar([h('button', { class: 'btn primary block', id: 'newBuild', onclick: () => go('newbuild') }, 'New build')]);
+};
+async function deleteBuild(b) {
+  for (const sd of Object.values(b.stepData || {})) for (const ph of ['grab', 'place', 'check']) if (sd[ph]?.photo?.key) await DB.del('blobs', sd[ph].photo.key);
+  if (b.inventory?.photo?.key) await DB.del('blobs', b.inventory.photo.key);
+  await DB.del('builds', b.id);
+}
+
+SCREENS.settings = async app => {
+  const s = Settings.load();
+  const field = (label, inp, help) => [h('label', { class: 'f' }, label), inp, help ? h('div', { class: 'muted small' }, help) : null];
+  const conn = h('select', { id: 'conn' }, h('option', { value: 'direct' }, 'My API key (testing)'), h('option', { value: 'proxy' }, 'Key proxy (family and friends)'));
+  conn.value = s.conn;
+  const key = h('input', { type: 'password', id: 'apiKey', value: s.apiKey, autocomplete: 'off', placeholder: 'sk-ant-…' });
+  const purl = h('input', { type: 'url', id: 'proxyUrl', value: s.proxyUrl, placeholder: 'https://your-proxy.workers.dev' });
+  const pass = h('input', { type: 'password', id: 'passcode', value: s.passcode, autocomplete: 'off' });
+  const directBox = h('div', {}, field('Anthropic API key', key, 'Stored on this device only, in plain text. Use the proxy for anyone else.'));
+  const proxyBox = h('div', {}, field('Proxy URL', purl), field('Passcode', pass));
+  const sync = () => { directBox.hidden = conn.value !== 'direct'; proxyBox.hidden = conn.value !== 'proxy'; };
+  conn.onchange = sync; sync();
+  const dl = h('datalist', { id: 'models' }, MODEL_OPTIONS.map(m => h('option', { value: m })));
+  const mIn = k => h('input', { type: 'text', list: 'models', id: 'model_' + k, value: s.models[k] });
+  const priceRows = Object.entries(s.prices).map(([m, [pi, po]]) => h('div', { class: 'row', style: 'margin:6px 0' }, h('span', { class: 'grow small' }, m),
+    h('input', { type: 'number', step: 'any', min: 0, value: pi, 'data-m': m, 'data-k': 0, style: 'width:90px', 'aria-label': m + ' input price' }),
+    h('input', { type: 'number', step: 'any', min: 0, value: po, 'data-m': m, 'data-k': 1, style: 'width:90px', 'aria-label': m + ' output price' })));
+  const pricesBox = h('div', {}, priceRows);
+  app.append(h('h2', {}, 'Settings'),
+    h('div', { class: 'card' }, field('Connection', conn), directBox, proxyBox),
+    h('div', { class: 'card' }, h('b', {}, 'Models'), dl,
+      field('Manual parsing', mIn('parse')), field('Inventory photo', mIn('inventory')), field('Step photos (grab and place)', mIn('step')), field('Check photos', mIn('check')),
+      h('div', { class: 'muted small' }, 'Swap step or check calls to claude-haiku-5-5 to compare accuracy and cost; the Log screen shows hit rates per model.')),
+    h('div', { class: 'card' }, h('b', {}, 'Price per million tokens (input, output, USD)'), pricesBox),
+    h('div', { class: 'card' }, h('b', {}, 'Storage'), h('p', { class: 'muted small' }, 'Safari may delete saved builds for sites not opened in 7 days unless BuildLens is added to the home screen.'),
+      h('button', { class: 'btn danger', id: 'clearData', onclick: async () => { if (!confirm('Delete all builds, photos, saved guides and the log?')) return; indexedDB.deleteDatabase('buildlens'); DB.db?.close(); DB.db = null; lsSet(GUIDE_CACHE, null); lsSet(BUILD_ACTIVE, null); alert('Cleared.'); go('home'); } }, 'Clear all data')));
+  const collect = () => {
+    const n = Settings.load(); n.conn = conn.value; n.apiKey = key.value.trim(); n.proxyUrl = purl.value.trim(); n.passcode = pass.value.trim();
+    for (const k of ['parse', 'inventory', 'step', 'check']) n.models[k] = $('#model_' + k).value.trim() || n.models[k];
+    for (const inp of pricesBox.querySelectorAll('input')) { const m = inp.dataset.m; n.prices[m] = n.prices[m] || [0, 0]; n.prices[m][+inp.dataset.k] = parseFloat(inp.value) || 0; }
+    return n;
+  };
+  const testBtn = h('button', { class: 'btn', id: 'testConn', onclick: () => guarded(async () => {
+    Settings.save(collect());
+    const r = await busy('Testing connection…', sig => callClaude({ call: 'testConnection', model: Settings.load().models.step, system: 'Reply with ok true.', content: [{ type: 'text', text: 'Connection test.' }], schema: obj({ ok: { type: 'boolean' } }), effort: 'low', maxTokens: 2000, signal: sig }));
+    modal([h('h2', {}, r.ok ? 'Connected' : 'Unexpected reply'), h('p', {}, r.ok ? 'BuildLens can reach Claude.' : JSON.stringify(r)), h('button', { class: 'btn block', onclick: closeModal }, 'Close')]);
+  }) }, 'Test connection');
+  setBar([h('button', { class: 'btn primary block', id: 'saveSettings', onclick: () => { Settings.save(collect()); build ? go(screenFor(build)) : go('home'); } }, 'Save')], [testBtn]);
+};
+
+SCREENS.newbuild = async app => {
+  const st = ui.nb ||= { category: null, job: 'install', vehicle: { make: '', model: '', year: '' } };
+  app.append(h('h2', {}, 'What are you putting together?'));
+  for (const [k, label, sub] of [['car_seat', 'Car seat', 'Install, move, check or convert a child car seat'], ['furniture', 'Flat-pack furniture', 'Lettered parts, numbered hardware'], ['generic', 'Something else', 'Stroller, crib, grill, shelving…']])
+    app.append(h('button', { class: 'btn choice' + (st.category === k ? ' sel' : ''), 'data-cat': k, onclick: () => { st.category = k; render(); } }, h('b', {}, label), h('div', { class: 'muted small' }, sub)));
+  if (st.category === 'car_seat') {
+    app.append(h('h3', {}, 'Job'));
+    for (const [k, label] of Object.entries(JOB_LABEL)) app.append(h('button', { class: 'btn choice' + (st.job === k ? ' sel' : ''), 'data-job': k, onclick: () => { st.job = k; render(); } }, label));
+    app.append(h('h3', {}, 'Vehicle'));
+    const inp = (k, ph, type = 'text') => h('input', { type, id: 'veh_' + k, placeholder: ph, value: st.vehicle[k], oninput: e => { st.vehicle[k] = e.target.value; validate(); } });
+    app.append(h('div', { class: 'row' }, h('div', { class: 'grow' }, inp('year', 'Year', 'number')), h('div', { class: 'grow' }, inp('make', 'Make')), h('div', { class: 'grow' }, inp('model', 'Model'))),
+      h('p', { class: 'muted small' }, "Without the car's manual, BuildLens never states car-specific facts; it turns them into hands-on checks. You can add the manual's child-seat pages on the next screen."));
+  }
+  const start = h('button', { class: 'btn primary block', id: 'createBuild', onclick: async () => {
+    build = { id: uid(), createdAt: Date.now(), category: st.category, job: st.category === 'car_seat' ? st.job : null, vehicle: st.category === 'car_seat' ? { ...st.vehicle } : null,
+      pages: [], state: 'MANUAL', stepIndex: 0, phase: 'GRAB', stepData: {} };
+    await saveBuild(); lsSet(BUILD_ACTIVE, build.id); ui = {}; go('manual');
+  } }, 'Next: add the manual');
+  const validate = () => { start.disabled = !st.category || (st.category === 'car_seat' && !(st.vehicle.make && st.vehicle.model && st.vehicle.year)); };
+  validate();
+  setBar([start]);
+};
+
+async function addManualFiles(files, source) {
+  const pdfs = files.filter(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name)); const imgs = files.filter(f => !pdfs.includes(f));
+  const added = [];
+  await busy('Adding pages…', async (sig, sub) => {
+    for (const f of pdfs) {
+      const doc = await openPdf(f); let from = 1, to = doc.numPages;
+      if (doc.numPages > RANGE_OVER) {
+        const r = await askRange(doc.numPages, f.name); if (!r) continue; [from, to] = r;
+      }
+      const pages = await renderPdfPages(doc, from, to, (i, n) => sub(`Page ${i} of ${n}`));
+      for (const p of pages) added.push({ ...p, source, file: f.name });
+      build.fileHashes = [...(build.fileHashes || []), await hashFiles([f]) + `:${from}-${to}`];
+    }
+    for (const f of imgs) { const p = await storePhoto(f, PAGE_EDGE); added.push({ ...p, source, file: f.name }); }
+  });
+  build.pages.push(...added);
+  if (build.pages.length > MAX_PAGES) { build.pages = build.pages.slice(0, MAX_PAGES); showError(new UserError(`Only the first ${MAX_PAGES} pages are kept. Remove pages you don't need, such as other languages.`)); }
+  await saveBuild();
+}
+function askRange(total, name) {
+  return new Promise(res => {
+    const from = h('input', { type: 'number', id: 'rangeFrom', min: 1, max: total, value: 1 }), to = h('input', { type: 'number', id: 'rangeTo', min: 1, max: total, value: Math.min(total, RANGE_OVER) });
+    $('#busy').hidden = true;
+    modal([h('h2', {}, 'Which pages?'), h('p', {}, `${name} has ${total} pages. Pick the range with the steps you need (for a vehicle manual, just the child-seat section).`),
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('label', { class: 'f' }, 'From'), from), h('div', { class: 'grow' }, h('label', { class: 'f' }, 'To'), to)),
+      h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn primary grow', id: 'rangeOk', onclick: () => {
+        const a = clamp(parseInt(from.value) || 1, 1, total), b = clamp(parseInt(to.value) || total, a, total);
+        if (b - a + 1 > MAX_PAGES) { alert(`Pick ${MAX_PAGES} pages or fewer.`); return; }
+        closeModal(); $('#busy').hidden = false; res([a, b]); } }, 'Use these pages'), h('button', { class: 'btn grow', onclick: () => { closeModal(); $('#busy').hidden = false; res(null); } }, 'Skip this file'))]);
+  });
+}
+SCREENS.manual = async app => {
+  const car = build.category === 'car_seat';
+  app.append(h('h2', {}, car ? 'Add the car seat manual' : 'Add the manual'), h('p', { class: 'muted' }, 'Photograph each page, or upload the PDF.'));
+  const saved = Object.entries(guideCache.all()).filter(([, v]) => v.guide?.product?.category === build.category);
+  if (saved.length && !build.pages.length) {
+    app.append(h('div', { class: 'card' }, h('b', {}, 'Use a manual you already read'),
+      saved.map(([k, v]) => h('button', { class: 'btn choice', 'data-saved': k, onclick: async () => {
+        build.pages = v.pages.filter(p => p.source === 'seat'); build.guide = v.guide; build.manualHash = k; setState('PARSED'); await saveBuild(); go('review'); } }, v.guide.product.name || 'Saved guide'))));
+  }
+  const grid = async source => {
+    const pages = build.pages.filter(p => p.source === source);
+    if (!pages.length) return h('div', { class: 'empty' }, 'No pages yet.');
+    const g = h('div', { class: 'thumbs' });
+    for (const [i, p] of pages.entries()) {
+      const idx = build.pages.indexOf(p);
+      const move = async d => { const j = build.pages.findIndex((q, qi) => qi !== idx && q.source === source && (d < 0 ? qi < idx : qi > idx) && (d < 0 ? build.pages.slice(qi + 1, idx).every(x => x.source !== source) : build.pages.slice(idx + 1, qi).every(x => x.source !== source))); if (j < 0) return; [build.pages[idx], build.pages[j]] = [build.pages[j], build.pages[idx]]; await saveBuild(); render(); };
+      g.append(h('div', { class: 'thumb' }, h('img', { src: await blobUrl(p.key), alt: `Page ${i + 1}` }), h('span', { class: 'n' }, i + 1),
+        h('div', { class: 'acts' }, h('button', { 'aria-label': 'Move earlier', onclick: () => move(-1) }, '◀'), h('button', { 'aria-label': 'Delete page', onclick: async () => { build.pages.splice(idx, 1); await saveBuild(); render(); } }, '✕'), h('button', { 'aria-label': 'Move later', onclick: () => move(1) }, '▶'))));
+    }
+    return g;
+  };
+  const adders = source => h('div', { class: 'row', style: 'margin-top:10px' },
+    h('button', { class: 'btn grow', 'data-add': source + '-camera', onclick: () => guarded(async () => { const f = await pickFiles({ camera: true }); if (f.length) { await addManualFiles(f, source); render(); } }) }, 'Take photo'),
+    h('button', { class: 'btn grow', 'data-add': source + '-file', onclick: () => guarded(async () => { const f = await pickFiles({ multiple: true }); if (f.length) { await addManualFiles(f, source); render(); } }) }, 'Upload PDF or images'));
+  app.append(h('div', { class: 'card', id: 'seatPages' }, h('b', {}, car ? 'Car seat manual' : 'Manual'), await grid('seat'), adders('seat')));
+  if (car) app.append(h('div', { class: 'card', id: 'vehiclePages' }, h('b', {}, 'Vehicle manual — child-seat section (optional)'),
+    h('p', { class: 'muted small' }, 'Adds tether and lower-anchor locations and belt locking for this car. Without it, those become hands-on checks.'), await grid('vehicle'), adders('vehicle')));
+  const read = h('button', { class: 'btn primary block', id: 'readManual', disabled: !build.pages.some(p => p.source === 'seat'), onclick: () => guarded(readManual) }, 'Read manual');
+  setBar([read]);
+};
+async function readManual() {
+  const hash = await hashPages(build.pages);
+  const cached = guideCache.get(hash);
+  if (cached) { build.guide = cached.guide; build.manualHash = hash; }
+  else {
+    const guide = await busy('Reading the manual…', (sig, sub) => apiParseManual(build, sig, n => sub(`${n.toLocaleString()} characters written`)));
+    if (!guide?.steps?.length) throw new UserError("Couldn't find any steps in those pages. Check the pages are in order and readable.");
+    guide.steps.sort((a, b) => a.n - b.n);
+    build.guide = guide; build.manualHash = hash;
+    guideCache.set(hash, { guide, pages: build.pages.map(({ key, w, h, source }) => ({ key, w, h, source })), savedAt: Date.now() });
+  }
+  if (build.category === 'car_seat' && build.guide.product.category !== 'car_seat') build.guide.product.category = 'car_seat';
+  setState('PARSED'); await saveBuild(); go('review');
+}
+
+SCREENS.review = async app => {
+  const g = build.guide; const car = build.category === 'car_seat';
+  app.append(h('h2', {}, g.product.name || 'Your guide'), h('div', { class: 'muted' }, [g.product.brand, g.product.model].filter(Boolean).join(' · ')));
+  if (g.modes?.length) {
+    if (!build.modeId || !g.modes.some(m => m.id === build.modeId)) build.modeId = null;
+    app.append(h('h3', {}, build.job === 'convert' ? 'Convert to which mode?' : 'Install mode'));
+    for (const m of g.modes) app.append(h('button', { class: 'btn choice' + (build.modeId === m.id ? ' sel' : ''), 'data-mode': m.id, onclick: async () => { build.modeId = m.id; await saveBuild(); render(); } }, h('b', {}, m.label), m.description ? h('div', { class: 'muted small' }, m.description) : null));
+  }
+  if (car) app.append(g.vehicleFacts?.length
+    ? h('div', { class: 'card' }, h('b', {}, 'From your vehicle manual'), h('ul', { class: 'plain' }, g.vehicleFacts.map(f => h('li', {}, f.fact, h('span', { class: 'muted small' }, ` (vehicle p. ${f.vehiclePage})`)))))
+    : h('div', { class: 'banner info' }, "No vehicle manual added: car-specific items (tether anchor, lower anchors, belt locking) will be hands-on checks."));
+  if (g.parts?.length) app.append(h('h3', {}, 'Parts'), h('div', { class: 'chips' }, g.parts.map(p => h('span', { class: 'chip g', title: p.description }, h('b', {}, p.id), ` ${p.name}${p.qty > 1 ? ' ×' + p.qty : ''}`))));
+  if (g.hardware?.length) app.append(h('h3', {}, 'Hardware'), h('div', { class: 'chips' }, g.hardware.map(p => h('span', { class: 'chip a', title: p.sizeHint }, h('b', {}, p.id), ` ${p.name} ×${p.qty}`))));
+  if (g.tools?.length) app.append(h('h3', {}, 'Tools'), h('div', { class: 'chips' }, g.tools.map(t => h('span', { class: 'chip' }, t))));
+  const steps = activeSteps();
+  app.append(h('h3', {}, `Steps (${steps.length})`));
+  if (g.modes?.length && !build.modeId) app.append(h('p', { class: 'muted' }, 'Pick a mode to see its steps.'));
+  else app.append(h('ol', { class: 'plain', id: 'stepList' }, steps.map(s => h('li', {}, h('b', {}, s.title), h('div', { class: 'muted small' }, s.instruction)))));
+  app.append(h('button', { class: 'btn', style: 'margin-top:16px', onclick: async () => { if (!confirm('Read the manual again with the AI? This costs a parse call.')) return; guideCache.del(build.manualHash); build.guide = null; setState('MANUAL'); await saveBuild(); go('manual'); } }, 'Re-read manual'));
+  const startBtn = h('button', { class: 'btn primary block', id: 'startBuild', disabled: (g.modes?.length && !build.modeId) || !steps.length, onclick: async () => {
+    build.stepIndex = 0; build.phase = build.job === 'check' ? 'CHECK' : 'GRAB';
+    setState(build.job === 'check' ? 'STEP' : 'INVENTORY'); await saveBuild(); go(screenFor(build));
+  } }, build.job === 'check' ? 'Start checking' : 'Start build');
+  setBar([startBtn]);
+};
+
+SCREENS.inventory = async app => {
+  const car = build.category === 'car_seat'; const inv = build.inventory ||= {};
+  app.append(h('h2', {}, car ? 'Photograph the back seat' : 'Lay out every part'));
+  if (!inv.photo) {
+    app.append(h('p', {}, car ? 'Take one photo of the seat position where the car seat will go, with the seat cushions visible.' : 'Put every panel and the hardware bags on the floor, spread out, and take one photo of all of it.'));
+    const take = cam => () => guarded(async () => { const f = await pickFiles({ camera: cam, accept: 'image/*' }); if (!f.length) return; inv.photo = await busy('Preparing photo…', () => storePhoto(f[0])); await saveBuild(); await scanInventory(); });
+    setBar([h('button', { class: 'btn primary block', id: 'invCamera', onclick: take(true) }, 'Take photo')],
+      [h('button', { class: 'btn', id: 'invUpload', onclick: take(false) }, 'Upload'), h('button', { class: 'btn', id: 'invSkip', onclick: () => finishInventory() }, 'Skip')]);
+    return;
+  }
+  const r = inv.result || { items: [], missing: [], uncertain: [], vehicleMarks: [] };
+  if (r.retakeHint) app.append(h('div', { class: 'banner warn' }, r.retakeHint));
+  const scene = () => {
+    const shapes = [];
+    r.items.forEach((it, i) => { const b = normBox(it.box, inv.photo.w, inv.photo.h); if (b) shapes.push({ box: b, color: COLORS.tag, fill: true, label: it.ref, low: (it.confidence ?? 1) < LOW_CONF, idx: i, kind: 'item' }); });
+    r.uncertain.forEach((u, i) => { const b = normBox(u.box, inv.photo.w, inv.photo.h); if (b) shapes.push({ box: b, color: COLORS.uncertain, dash: true, label: (u.candidates || []).join(' or ') + '?', idx: i, kind: 'uncertain' }); });
+    r.vehicleMarks.forEach((m, i) => { const b = normBox(m.box, inv.photo.w, inv.photo.h); if (b) shapes.push({ box: b, color: COLORS.mark, dash: (m.confidence ?? 1) < LOW_CONF, label: m.label || m.kind, low: (m.confidence ?? 1) < LOW_CONF, idx: i, kind: 'mark' }); });
+    return { shapes, arrows: [] };
+  };
+  const stage = stageView({ photo: inv.photo, getScene: scene, onTap: (x, y, hit) => { if (hit && hit.kind !== 'mark') correctTag(hit, r, stage); } });
+  app.append(stage);
+  if (car) {
+    app.append(h('p', { class: 'muted small' }, 'Blue marks show only anchors and belt paths with a visible symbol or tag. Anything not marked becomes a hands-on check.'));
+  } else {
+    app.append(h('p', { class: 'muted small' }, 'Tap a tag to confirm or fix it.'));
+    if (r.missing.length) app.append(h('div', { class: 'banner warn', id: 'missing' }, 'Not found in the photo: ' + r.missing.join(', ')));
+  }
+  setBar([h('button', { class: 'btn primary block', id: 'invOk', onclick: () => guarded(finishInventory) }, 'Looks right')],
+    [h('button', { class: 'btn', onclick: () => guarded(async () => { inv.photo = null; inv.result = null; await saveBuild(); render(); }) }, 'Retake'), h('button', { class: 'btn', onclick: () => guarded(scanInventory) }, 'Scan again')]);
+};
+async function scanInventory() {
+  const inv = build.inventory;
+  const r = await busy('Finding the parts…', sig => apiScanInventory(build, inv.photo, sig));
+  inv.result = { items: r.items || [], missing: r.missing || [], uncertain: r.uncertain || [], vehicleMarks: r.vehicleMarks || [], retakeHint: r.retakeHint };
+  await saveBuild(); render();
+}
+function correctTag(hit, r, stage) {
+  const ids = [...(build.guide.parts || []).map(p => p.id), ...(build.guide.hardware || []).map(p => p.id)];
+  const apply = async ref => {
+    if (hit.kind === 'item') { if (ref) { r.items[hit.idx].ref = ref; r.items[hit.idx].confidence = 1; } else r.items.splice(hit.idx, 1); }
+    else { const u = r.uncertain.splice(hit.idx, 1)[0]; if (ref) r.items.push({ ref, box: u.box, confidence: 1 }); }
+    r.missing = r.missing.filter(m => m !== ref);
+    await logEvent({ type: 'correction', buildId: build.id, call: 'scanInventory', model: Settings.load().models.inventory, to: ref });
+    await saveBuild(); closeModal(); stage.redraw();
+  };
+  modal([h('h2', {}, 'Which part is this?'), h('div', { class: 'chips' }, ids.map(id => h('button', { class: 'btn', 'data-tag': id, onclick: () => apply(id) }, id))),
+    h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'btn grow', onclick: () => apply(null) }, 'Not a part'), h('button', { class: 'btn grow', onclick: closeModal }, 'Cancel'))]);
+}
+async function finishInventory() {
+  const inv = build.inventory || {}; inv.crops = [];
+  if (inv.photo && inv.result) {
+    const seen = new Set();
+    await busy('Saving part references…', async () => {
+      for (const it of inv.result.items) {
+        if (seen.has(it.ref) || (it.confidence ?? 1) < LOW_CONF) continue;
+        const c = await cropToBlob(inv.photo.key, it.box, inv.photo.w, inv.photo.h); if (!c) continue;
+        inv.crops.push({ ref: it.ref, key: await putBlob(c.blob), w: c.w, h: c.h }); seen.add(it.ref);
+      }
+    });
+  }
+  build.inventory = inv; build.stepIndex = 0; build.phase = 'GRAB'; setState('STEP'); await saveBuild(); go('step');
+}
+
+// ---- step screen
+const PHASES = [['GRAB', 'Grab'], ['PLACE', 'Place'], ['CHECK', 'Check'], ['HANDS_ON', 'Hands-on']];
+SCREENS.step = async app => {
+  const steps = activeSteps(); const step = steps[build.stepIndex];
+  if (!step) { setState('DONE'); await saveBuild(); return go('finished'); }
+  const sd = stepData(); const car = build.category === 'car_seat';
+  const phases = build.job === 'check' ? PHASES.slice(2) : PHASES;
+  if (!(step.humanChecks?.length) && build.phase === 'HANDS_ON') build.phase = 'CHECK';
+  const pi = phases.findIndex(p => p[0] === build.phase);
+  app.append(h('div', { class: 'steps-nav' },
+    h('button', { class: 'iconbtn', id: 'prevStep', disabled: build.stepIndex === 0, 'aria-label': 'Previous step', onclick: () => moveStep(-1) }, '◀'),
+    h('div', { class: 'grow' }, h('b', { id: 'stepHeader' }, `Step ${build.stepIndex + 1} of ${steps.length}: ${step.title}`)),
+    h('button', { class: 'iconbtn', id: 'nextStepNav', disabled: build.stepIndex >= steps.length - 1, 'aria-label': 'Next step', onclick: () => moveStep(1) }, '▶')));
+  app.append(h('div', { class: 'phases' }, phases.filter(p => p[0] !== 'HANDS_ON' || step.humanChecks?.length).map((p, i) => h('span', { class: i === pi ? 'on' : i < pi ? 'done' : '' }, p[1]))));
+  if (step.cautions?.length) app.append(h('div', { class: 'banner warn' }, '⚠ ' + step.cautions.join(' ')));
+  const phase = build.phase;
+  if (phase === 'GRAB' || phase === 'PLACE') return phaseGuide(app, step, sd, phase === 'GRAB' ? 'grab' : 'place');
+  if (phase === 'CHECK') return phaseCheck(app, step, sd, car);
+  return phaseHandsOn(app, step, sd, car);
+};
+async function moveStep(d) {
+  const n = activeSteps().length; build.stepIndex = clamp(build.stepIndex + d, 0, n - 1);
+  build.phase = build.job === 'check' ? 'CHECK' : 'GRAB'; ui = {}; await saveBuild(); render();
+}
+async function setPhase(p) { build.phase = p; ui = {}; await saveBuild(); render(); window.scrollTo(0, 0); }
+async function nextStep() {
+  const n = activeSteps().length;
+  if (build.stepIndex >= n - 1) { setState('DONE'); await saveBuild(); return go('finished'); }
+  build.stepIndex++; build.phase = build.job === 'check' ? 'CHECK' : 'GRAB'; ui = {}; await saveBuild(); render(); window.scrollTo(0, 0);
+}
+function chipsFor(step) {
+  return h('div', { class: 'chips' },
+    (step.hardware || []).map(hw => h('span', { class: 'chip a' }, `${hw.qty} × ${hw.id}`)),
+    (step.tools || []).map(t => h('span', { class: 'chip' }, '🔧 ' + t)));
+}
+async function phaseGuide(app, step, sd, ph) {
+  const rec = sd[ph]; const inset = await insetView(build, step);
+  const takePhoto = cam => () => guarded(async () => {
+    const f = await pickFiles({ camera: cam, accept: 'image/*' }); if (!f.length) return;
+    const photo = await busy('Preparing photo…', () => storePhoto(f[0]));
+    sd[ph] = { photo, overlay: null }; await saveBuild(); await runGuide(step, sd, ph);
+  });
+  if (!rec?.photo) {
+    app.append(h('p', { class: 'instr' }, step.instruction), chipsFor(step));
+    if (inset) { inset.style.position = 'static'; inset.style.width = '60%'; app.append(h('div', { class: 'muted small' }, "Manual drawing:"), inset); }
+    app.append(h('p', { class: 'muted' }, ph === 'grab' ? 'Take a photo of the parts pile so I can show you what to grab.' : 'Now take a photo of the build where the parts go.'));
+    setBar([h('button', { class: 'btn primary block', id: 'takePhoto', onclick: takePhoto(true) }, ph === 'grab' ? 'Take grab photo' : 'Take place photo')],
+      [h('button', { class: 'btn', id: 'uploadPhoto', onclick: takePhoto(false) }, 'Upload'),
+        ph === 'grab' ? h('button', { class: 'btn', id: 'skipGrab', onclick: () => setPhase('PLACE') }, 'I have the parts') : h('button', { class: 'btn', id: 'skipPlace', onclick: () => setPhase('CHECK') }, 'Skip to check'),
+        speakerBtn(step.instruction)]);
+    return;
+  }
+  if (!rec.overlay) {
+    app.append(h('div', { class: 'banner warn' }, 'This photo has no guidance yet.'));
+    setBar([h('button', { class: 'btn primary block', id: 'runGuide', onclick: () => guarded(() => runGuide(step, sd, ph)) }, 'Get guidance')], [h('button', { class: 'btn', onclick: takePhoto(true) }, 'Retake')]);
+    return;
+  }
+  const o = rec.overlay;
+  const stage = stageView({ photo: rec.photo, inset, getScene: () => shapesFromOverlay(o, rec.photo.w, rec.photo.h), onTap: (x, y, hit) => onStageTap(x, y, hit, step, sd, ph, o, stage) });
+  // instruction first, so it is readable without scrolling past the photo
+  app.append(h('div', { class: 'row' }, h('p', { class: 'instr grow', id: 'instruction' }, o.instruction || step.instruction), speakerBtn(o.instruction || step.instruction)));
+  if (ui.wrongMode) app.append(h('div', { class: 'banner info', id: 'wrongHint' }, 'Tap the right part in the photo.'));
+  if (o.retakeHint) app.append(h('div', { class: 'banner warn', id: 'retakeHint' }, '📷 ' + o.retakeHint));
+  app.append(stage, chipsFor(step));
+  if (o.notVisible?.length) app.append(h('div', { class: 'banner warn', id: 'notVisible' }, 'Not in this photo: ' + o.notVisible.join(', ')));
+  const fb = sd.feedback[ph];
+  const setFb = async v => { sd.feedback[ph] = v; await saveBuild(); await logEvent({ type: 'feedback', buildId: build.id, step: step.n, phase: ph, model: o._model || Settings.load().models.step, right: v }); render(); };
+  app.append(h('div', { class: 'fb', id: 'feedback' }, h('span', { class: 'muted' }, 'Was this right?'),
+    h('button', { class: 'btn' + (fb === true ? ' sel' : ''), id: 'fbYes', onclick: () => setFb(true) }, '👍'),
+    h('button', { class: 'btn' + (fb === false ? ' sel' : ''), id: 'fbNo', onclick: () => setFb(false) }, '👎')));
+  const primary = ph === 'grab'
+    ? h('button', { class: 'btn primary block', id: 'toPlace', onclick: () => setPhase('PLACE') }, 'Next: where it goes')
+    : h('button', { class: 'btn primary block', id: 'checkWork', onclick: () => setPhase('CHECK') }, 'Check my work');
+  setBar([primary], [
+    h('button', { class: 'btn', id: 'retake', onclick: takePhoto(true) }, 'Retake'),
+    h('button', { class: 'btn', id: 'wrongPart', onclick: () => { ui.wrongMode = !ui.wrongMode; render(); } }, ui.wrongMode ? 'Cancel' : 'Wrong part'),
+    h('button', { class: 'btn', id: 'toggleOverlay', onclick: () => { ui.showOverlay = ui.showOverlay === false; stage.redraw(); } }, 'Overlay'),
+  ]);
+}
+async function runGuide(step, sd, ph, hint) {
+  const rec = sd[ph];
+  const o = await busy(ph === 'grab' ? `Finding ${[...(step.parts || []), ...(step.hardware || []).map(x => x.id)].slice(0, 3).join(', ') || 'the parts'}…` : 'Finding where it goes…', sig => apiGuideStep(build, step, ph, rec.photo, hint, sig));
+  o._model = Settings.load().models.step; rec.overlay = o; ui.wrongMode = false;
+  await saveBuild(); render();
+}
+function onStageTap(x, y, hit, step, sd, ph, o, stage) {
+  if (ui.wrongMode) {
+    const hint = `The user says the correct part for this step is at about (${Math.round(x)}, ${Math.round(y)}) in the photo. Box that part instead.`;
+    logEvent({ type: 'correction', buildId: build.id, step: step.n, phase: ph, call: 'guideStep', model: Settings.load().models.step, at: [Math.round(x), Math.round(y)] });
+    sd.corrections = (sd.corrections || 0) + 1;
+    return guarded(() => runGuide(step, sd, ph, hint));
+  }
+  if (hit?.low) {
+    modal([h('h2', {}, `Is this ${hit.label}?`), h('div', { class: 'row' },
+      h('button', { class: 'btn primary grow', id: 'confirmYes', onclick: async () => { hit.ref.confidence = 1; await saveBuild(); closeModal(); stage.redraw(); } }, 'Yes'),
+      h('button', { class: 'btn grow', id: 'confirmNo', onclick: () => { closeModal(); ui.wrongMode = true; render(); } }, 'No, show me'))]);
+  }
+}
+async function phaseCheck(app, step, sd, car) {
+  const rec = sd.check; const inset = await insetView(build, step);
+  const takePhoto = cam => () => guarded(async () => {
+    const f = await pickFiles({ camera: cam, accept: 'image/*' }); if (!f.length) return;
+    const photo = await busy('Preparing photo…', () => storePhoto(f[0]));
+    sd.check = { photo, result: null }; await saveBuild(); await runCheck(step, sd);
+  });
+  if (!rec?.photo || !rec.result) {
+    app.append(h('p', { class: 'instr' }, build.job === 'check' ? step.instruction : 'Take a photo of your work so I can check it.'));
+    if (step.checkCriteria?.length) app.append(h('div', { class: 'card' }, h('b', {}, 'I will check:'), h('ul', { class: 'plain' }, step.checkCriteria.map(c => h('li', {}, c)))));
+    if (inset) { inset.style.position = 'static'; inset.style.width = '60%'; app.append(inset); }
+    const prim = rec?.photo && !rec.result ? h('button', { class: 'btn primary block', id: 'runCheck', onclick: () => guarded(() => runCheck(step, sd)) }, 'Check this photo')
+      : h('button', { class: 'btn primary block', id: 'takeCheck', onclick: takePhoto(true) }, 'Take check photo');
+    setBar([prim], [h('button', { class: 'btn', id: 'uploadCheck', onclick: takePhoto(false) }, 'Upload'),
+      build.job !== 'check' ? h('button', { class: 'btn', onclick: () => setPhase('PLACE') }, 'Back') : null]);
+    return;
+  }
+  const r = rec.result;
+  const scene = () => ({ shapes: r.verdict === 'fix' ? (r.issues || []).map(i => ({ box: normBox(i.box, rec.photo.w, rec.photo.h), color: COLORS.issue, fill: true, label: i.problem })).filter(s => s.box) : [], arrows: [] });
+  app.append(stageView({ photo: rec.photo, inset, getScene: scene }));
+  const afterPass = () => step.humanChecks?.length ? setPhase('HANDS_ON') : nextStep();
+  if (r.verdict === 'pass') {
+    app.append(h('div', { class: 'banner ok', id: 'verdict' }, '✓ Looks right. ' + (r.summary || '')));
+    if (step.humanChecks?.length) app.append(h('p', { class: 'muted' }, 'Some things can only be checked by hand. That comes next.'));
+    setBar([h('button', { class: 'btn primary block', id: 'afterPass', onclick: afterPass }, step.humanChecks?.length ? 'Next: hands-on checks' : 'Next step')], [h('button', { class: 'btn', onclick: takePhoto(true) }, 'Check again')]);
+  } else if (r.verdict === 'fix') {
+    app.append(h('div', { class: 'banner bad', id: 'verdict' }, '✕ Needs a fix. ' + (r.summary || '')),
+      h('ul', { class: 'plain', id: 'fixes' }, (r.issues || []).map(i => h('li', {}, h('b', {}, i.problem), ' — ', i.fix))));
+    const override = car
+      ? h('button', { class: 'btn', id: 'override', onclick: () => confirmOverride(step, sd, afterPass) }, 'I checked it by hand')
+      : h('button', { class: 'btn', id: 'override', onclick: async () => { await logEvent({ type: 'override', buildId: build.id, step: step.n }); afterPass(); } }, "It's fine, continue");
+    setBar([h('button', { class: 'btn primary block', id: 'tryAgain', onclick: takePhoto(true) }, 'Try again')],
+      [build.job !== 'check' ? h('button', { class: 'btn', id: 'redoStep', onclick: async () => { sd.grab = null; sd.place = null; sd.check = null; await setPhase('GRAB'); } }, 'Redo step') : null, override]);
+  } else {
+    app.append(h('div', { class: 'banner warn', id: 'verdict' }, '? Not sure. ' + (r.retakeHint || r.summary || 'Try another angle.')));
+    setBar([h('button', { class: 'btn primary block', id: 'retakeCheck', onclick: takePhoto(true) }, 'Retake check photo')], [override2(step, sd, car, afterPass)]);
+  }
+}
+function override2(step, sd, car, afterPass) {
+  return car ? h('button', { class: 'btn', id: 'override', onclick: () => confirmOverride(step, sd, afterPass) }, 'I checked it by hand')
+    : h('button', { class: 'btn', id: 'override', onclick: afterPass }, "It's fine, continue");
+}
+function confirmOverride(step, sd, then) {
+  const cb = h('input', { type: 'checkbox', id: 'overrideConfirm' });
+  const ok = h('button', { class: 'btn primary grow', id: 'overrideOk', disabled: true, onclick: async () => { sd.override = true; await logEvent({ type: 'override', buildId: build.id, step: step.n }); await saveBuild(); closeModal(); then(); } }, 'Continue');
+  cb.onchange = () => { ok.disabled = !cb.checked; };
+  modal([h('h2', {}, 'Confirm by hand'), h('p', {}, 'The photo check did not pass. Only continue if you have checked this step yourself against the car seat manual.'),
+    h('label', { class: 'check' }, cb, h('span', {}, 'I checked this step by hand and it matches the manual.')),
+    h('div', { class: 'row' }, ok, h('button', { class: 'btn grow', onclick: closeModal }, 'Cancel'))]);
+}
+async function runCheck(step, sd) {
+  const r = await busy('Checking your work…', sig => apiCheckStep(build, step, sd.check.photo, sig));
+  if (r.verdict === 'pass' && step.humanChecks?.length && false) {} // humanChecks are never passed from a photo: they always follow as a checklist
+  sd.check.result = r; if (r.verdict === 'fix') sd.fixes = (sd.fixes || 0) + 1;
+  await logEvent({ type: 'check', buildId: build.id, step: step.n, verdict: r.verdict, model: Settings.load().models.check });
+  await saveBuild(); render();
+}
+async function phaseHandsOn(app, step, sd, car) {
+  app.append(h('h2', {}, 'Hands-on checks'), h('p', { class: 'muted' }, 'A photo can’t judge these. Do each one and tick it.'));
+  const items = step.humanChecks || [];
+  const all = () => items.every((_, i) => sd.handsOn[i]);
+  const next = h('button', { class: 'btn primary block', id: 'handsOnDone', disabled: car && !all(), onclick: async () => {
+    if (!all() && !confirm('Some checks are not ticked. Continue anyway?')) return; await nextStep(); } }, build.stepIndex >= activeSteps().length - 1 ? 'Finish' : 'Next step');
+  items.forEach((c, i) => {
+    const cb = h('input', { type: 'checkbox', 'data-hc': i, checked: !!sd.handsOn[i], onchange: async e => { sd.handsOn[i] = e.target.checked; next.disabled = car && !all(); await saveBuild(); } });
+    app.append(h('label', { class: 'check' }, cb, h('span', {}, h('b', {}, c.check), h('span', { class: 'muted small' }, c.howTo))));
+  });
+  if (car) app.append(h('p', { class: 'muted small' }, 'All checks must be ticked before you can move on.'));
+  setBar([next], [h('button', { class: 'btn', onclick: () => setPhase('CHECK') }, 'Back')]);
+}
+
+SCREENS.finished = async app => {
+  const car = build.category === 'car_seat'; const steps = activeSteps();
+  const log = (await DB.all('log')).filter(e => e.buildId === build.id);
+  const cost = log.filter(e => e.type === 'call').reduce((a, e) => a + (e.cost || 0), 0);
+  const fixed = steps.map((s, i) => ({ s, d: build.stepData?.[i] })).filter(x => x.d?.fixes);
+  const fb = log.filter(e => e.type === 'feedback'); const right = fb.filter(e => e.right).length;
+  app.append(h('h2', {}, car ? 'Install steps complete' : 'Build complete'));
+  if (car) app.append(h('div', { class: 'banner info', id: 'techBanner' }, 'Have it checked by a certified child passenger safety technician before you drive. ', h('a', { href: TECH_URL, target: '_blank', rel: 'noopener' }, 'Find a technician')));
+  app.append(h('div', { class: 'card kv' },
+    h('span', { class: 'muted' }, 'Steps'), h('span', {}, String(steps.length)),
+    h('span', { class: 'muted' }, 'Needed a fix'), h('span', {}, fixed.length ? fixed.map(x => `Step ${x.s.n}`).join(', ') : 'None'),
+    h('span', { class: 'muted' }, 'Highlights right'), h('span', {}, fb.length ? `${right} of ${fb.length} rated` : 'Not rated'),
+    h('span', { class: 'muted' }, 'AI cost'), h('span', { id: 'buildCost' }, money(cost))));
+  setBar([h('button', { class: 'btn primary block', id: 'backHome', onclick: () => go('home') }, 'Back to home')], [h('button', { class: 'btn', onclick: async () => { build.state = 'STEP'; await saveBuild(); go('step'); } }, 'Review steps')]);
+};
+
+SCREENS.log = async app => {
+  const log = (await DB.all('log')).sort((a, b) => b.ts - a.ts);
+  const calls = log.filter(e => e.type === 'call');
+  const total = calls.reduce((a, e) => a + (e.cost || 0), 0);
+  app.append(h('h2', {}, 'Session log'), h('p', {}, `${calls.length} AI calls · `, h('b', { id: 'logTotal' }, money(total))));
+  // hit rate per model from "Was this right?" taps
+  const byModel = {};
+  for (const e of log.filter(e => e.type === 'feedback')) { const m = byModel[e.model] ||= { yes: 0, n: 0 }; m.n++; if (e.right) m.yes++; }
+  const corr = log.filter(e => e.type === 'correction').length;
+  app.append(h('div', { class: 'card' }, h('b', {}, 'Highlight hit rate by model'),
+    Object.keys(byModel).length ? h('ul', { class: 'plain', id: 'hitRates' }, Object.entries(byModel).map(([m, v]) => h('li', {}, `${m}: ${v.yes} of ${v.n} right (${Math.round(100 * v.yes / v.n)}%)`))) : h('p', { class: 'muted' }, 'No ratings yet. Tap 👍 or 👎 under each overlay.'),
+    h('div', { class: 'muted small' }, `${corr} corrections (Wrong part / tag fixes).`)));
+  const rows = calls.slice(0, 200).map(e => h('tr', {}, h('td', {}, new Date(e.ts).toLocaleTimeString()), h('td', {}, e.call), h('td', {}, (e.servedModel || e.model || '').replace('claude-', '')),
+    h('td', {}, e.usage ? `${(e.usage.input_tokens || 0) + (e.usage.cache_read_input_tokens || 0) + (e.usage.cache_creation_input_tokens || 0)} / ${e.usage.output_tokens || 0}` : '—'),
+    h('td', {}, e.latencyMs ? (e.latencyMs / 1000).toFixed(1) + 's' : '—'), h('td', {}, e.ok ? money(e.cost || 0) : '✕ ' + (e.error || ''))));
+  app.append(h('div', { class: 'tablewrap' }, h('table', { class: 'log' }, h('thead', {}, h('tr', {}, ['Time', 'Call', 'Model', 'Tokens in/out', 'Time', 'Cost'].map(t => h('th', {}, t)))), h('tbody', {}, rows))));
+  setBar([h('button', { class: 'btn primary block', id: 'exportLog', onclick: () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(log, null, 2)], { type: 'application/json' }));
+    const a = h('a', { href: url, download: `buildlens-log-${new Date().toISOString().slice(0, 10)}.json` }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } }, 'Export JSON')], [h('button', { class: 'btn', onclick: () => build ? go(screenFor(build)) : go('home') }, 'Back')]);
+};
+
+// ---------------------------------------------------------------- boot
+$('#homeBtn').onclick = () => go('home');
+$('#setBtn').onclick = () => go('settings');
+$('#logBtn').onclick = () => go('log');
+window.addEventListener('pagehide', () => { saveBuild().catch(() => {}); });
+(async () => {
+  try { await DB.open(); } catch (e) { $('#app').append(h('div', { class: 'banner bad' }, 'Storage is unavailable in this browser mode (private browsing?). BuildLens needs it to save your place.')); return; }
+  const active = lsGet(BUILD_ACTIVE);
+  if (active) await openBuild(active); else go('home');
+})();
+window.__bl = { get build() { return build; }, Settings, DB, normBox, version: 1 };
+</script>
+</body>
+</html>
