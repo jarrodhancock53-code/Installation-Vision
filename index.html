@@ -416,13 +416,14 @@ async function callClaude({ call, model, system, guideJson, content, schema, eff
   return data;
 }
 // Web tools: Haiku models use the basic tool versions; Sonnet/Opus use the dynamic-filtering versions.
-function webTools(model) {
+function webTools(model, searchOnly = false) {
   const basic = /haiku/.test(model);
-  return [
-    { type: basic ? 'web_search_20250305' : 'web_search_20260209', name: 'web_search', max_uses: 5 },
-    { type: basic ? 'web_fetch_20250910' : 'web_fetch_20260209', name: 'web_fetch', max_uses: 4, max_content_tokens: 60000 },
-  ];
+  const tools = [{ type: basic ? 'web_search_20250305' : 'web_search_20260209', name: 'web_search', max_uses: 4 }];
+  // max_content_tokens caps fetched text only; PDFs are not capped, so the prompt also forbids fetching them.
+  if (!searchOnly) tools.push({ type: basic ? 'web_fetch_20250910' : 'web_fetch_20260209', name: 'web_fetch', max_uses: 3, max_content_tokens: 30000 });
+  return tools;
 }
+const SEARCH_ONLY_NOTE = `\nIMPORTANT: a previous attempt failed because a fetched page was far too large. You now have web_search only. Use ONLY text and quotes that appear in the search results themselves. If the results do not contain a verbatim quote for a fact, leave that fact out. If no usable official quotes appear, set found to false.`;
 function extractJson(text) {
   const t = text.replace(/```(?:json)?/g, '');
   const a = t.indexOf('{'), b = t.lastIndexOf('}');
@@ -436,7 +437,7 @@ async function callClaudeWithWeb({ call, model, system, prompt, schema, effort =
   const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
   const body = { model, max_tokens: 16000, system: [{ type: 'text', text: `CALL: ${call}\n\n${system}` }], messages, tools: webTools(model), output_config: { effort } };
   const t0 = performance.now(); const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, web_search_requests: 0 };
-  let finalContent = [], served = model, stop = null;
+  let finalContent = [], served = model, stop = null, shrunk = false;
   for (let turn = 0; turn < 5; turn++) {
     let resp;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -448,6 +449,13 @@ async function callClaudeWithWeb({ call, model, system, prompt, schema, effort =
     if (!resp) { await logCall({ buildId, call, model, ok: false, error: 'offline', latencyMs: performance.now() - t0 }); throw new ApiError("No connection. Tap Retry when you're back online.", { kind: 'offline', retryable: true }); }
     if (!resp.ok) {
       let detail = ''; try { detail = (await resp.json())?.error?.message || ''; } catch {}
+      if (resp.status === 400 && /prompt is too long/i.test(detail)) {
+        await logCall({ buildId, call, model, ok: false, error: detail, latencyMs: performance.now() - t0 });
+        if (!shrunk) { // retry once from scratch with search only
+          shrunk = true; messages.length = 1; body.tools = webTools(model, true); body.system = [{ type: 'text', text: body.system[0].text + SEARCH_ONLY_NOTE }]; turn = -1; continue;
+        }
+        throw new ApiError('The search pulled in too much text to read (probably a whole owner’s manual). Upload the vehicle manual’s child-seat pages instead, or skip it: car-specific items will be hands-on checks.', { retryable: false });
+      }
       let msg = `The AI service returned an error (${resp.status}). ${detail}`;
       if (resp.status === 401) msg = s.conn === 'proxy' ? 'The proxy rejected the passcode. Check it in Settings.' : 'The API key was rejected. Check it in Settings.';
       else if (/web.?(search|fetch)/i.test(detail)) msg = 'Web search isn’t available for this API key. An admin can turn it on in the Anthropic Console (Settings → Privacy). Until then, upload the vehicle manual pages instead.';
@@ -547,7 +555,7 @@ const PARSE_SYSTEM = `You turn an assembly or installation manual into a structu
 
 const VEHICLE_SYSTEM = `You find a car's official owner's manual and extract its child safety seat (child restraint) information.
 - Use web_search to find the manufacturer's own owner's manual for the EXACT model year, make and model given. Prefer the manufacturer's owner site or its official PDF. Do not use forums, blogs, dealer pages, retailer listings or car-seat review sites.
-- Use web_fetch on the manual's child restraint / child safety section (an HTML section page if the manufacturer has one, otherwise the PDF).
+- Use web_fetch ONLY on HTML pages (the manufacturer's owner site usually has the child restraint / child safety section as its own web page). NEVER fetch a PDF or any URL ending in .pdf: a full owner's manual is hundreds of pages and the request will fail. If the only source is a PDF, do not fetch it; use the text shown in search results, and if that has no verbatim quote, set found to false.
 - Extract only what that section says about: top tether anchor locations, which seating positions have lower anchors (LATCH/ISOFIX) and whether the center seat may borrow them, how the seat belt locks for a car seat (switchable retractor, locking clip), inflatable seat belts, head restraint removal, airbag warnings.
 - Every fact must include a short verbatim quote from the manual and its page number or section name, and the URL you read it from.
 - If you cannot find the official manual for that exact year, or you cannot read its child-seat section, set found to false, facts to [], and explain in notFoundReason. Never fill facts from general knowledge.
@@ -669,7 +677,7 @@ function showError(err, retry) {
   if (err instanceof UserError || err instanceof ApiError) console.warn(err.message); else console.error(err);
   const msg = err instanceof UserError || err instanceof ApiError ? err.message : 'Something went wrong: ' + (err?.message || err);
   modal([h('h2', {}, err?.kind === 'offline' ? 'No connection' : 'That didn’t work'), h('p', { id: 'errMsg' }, msg),
-    h('div', { class: 'row' }, retry && (err?.retryable || err?.kind === 'offline' || !(err instanceof UserError)) ? h('button', { class: 'btn primary grow', id: 'errRetry', onclick: () => { closeModal(); retry(); } }, 'Retry') : null,
+    h('div', { class: 'row' }, retry && (err instanceof ApiError ? (err.retryable || err.kind === 'offline') : !(err instanceof UserError)) ? h('button', { class: 'btn primary grow', id: 'errRetry', onclick: () => { closeModal(); retry(); } }, 'Retry') : null,
       h('button', { class: 'btn grow', onclick: closeModal }, 'Close'))]);
 }
 async function guarded(fn, retry) { try { await fn(); } catch (e) { showError(e, retry || (() => guarded(fn))); } }
