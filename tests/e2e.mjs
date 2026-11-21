@@ -571,6 +571,52 @@ await test('find the car seat manual online: non-official, not found, unreadable
   assert.equal(parse.body.messages[0].content.filter(c => c.type === 'image').length, 2);
 });
 
+await test('remove or change the car, the seat, and saved guides', async ({ page, mock }) => {
+  await setKey(page);
+  await startCarBuild(page);
+  // car: find, confirm, change the car -> old car's manual is dropped, never carried over
+  await page.click('#findVehicle'); await page.waitForSelector('#confirmVehicle'); await page.click('#confirmVehicle');
+  await page.waitForSelector('#vehicleConfirmed');
+  await page.click('#editVehicle');
+  await page.fill('#edit_year', '2018'); await page.fill('#edit_make', 'Ford'); await page.fill('#edit_model', 'Escape');
+  await page.click('#saveVehicle');
+  await page.waitForFunction(() => /2018 Ford Escape/.test(document.querySelector('#vehicleTitle')?.innerText || ''));
+  assert.equal(await page.locator('#vehicleConfirmed').count(), 0);
+  assert.equal((await page.evaluate(() => window.__bl.build.vehicle)).model, 'Escape');
+  // changing back to the first car restores its saved lookup; Remove clears it for good
+  await page.click('#editVehicle');
+  await page.fill('#edit_year', '2021'); await page.fill('#edit_make', 'Honda'); await page.fill('#edit_model', 'CR-V');
+  await page.click('#saveVehicle');
+  await page.waitForSelector('#vehicleConfirmed');
+  await page.click('#removeVehicle');
+  await page.waitForSelector('#findVehicle');
+  assert.equal(await page.locator('#vehicleConfirmed').count(), 0);
+  await startCarBuild(page);
+  assert.equal(await page.locator('#vehicleConfirmed').count(), 0, 'removed lookup is not re-applied to a new build');
+  // seat: find, confirm, remove -> fields cleared and cache gone
+  await page.fill('#seat_brand', 'SafeRide'); await page.fill('#seat_model', '360');
+  await page.click('#findSeat'); await page.waitForSelector('#confirmSeat'); await page.click('#confirmSeat');
+  await page.waitForSelector('#seatConfirmed');
+  await page.click('#removeSeat');
+  await page.waitForSelector('#findSeat');
+  assert.equal(await page.locator('#seat_brand').inputValue(), '');
+  assert.equal(await page.locator('#findSeat').isDisabled(), true);
+  assert.equal(await page.locator('#removeSeat').count(), 0, 'nothing left to remove');
+  await page.fill('#seat_brand', 'SafeRide'); await page.fill('#seat_model', '360');
+  await page.click('#findSeat'); await page.waitForSelector('#confirmSeat');
+  assert.equal(mock.state.requests.filter(r => r.call === 'findSeatManual').length, 2, 'cache was cleared, so it searched again');
+  await page.click('#removeSeat');   // also removable before confirming
+  await page.waitForSelector('#findSeat');
+  // saved guides can be forgotten
+  await choose(page, '[data-add=seat-file]', [FX('carseat_manual.pdf')]);
+  await page.waitForSelector('#seatPages .thumb >> nth=1');
+  await page.click('#readManual'); await page.waitForSelector('[data-mode=rf_latch]');
+  await startCarBuild(page);
+  await page.waitForSelector('[data-saved]');
+  await page.click('[data-del-saved]');
+  await page.waitForFunction(() => !document.querySelector('[data-saved]'));
+});
+
 await test('proxy mode sends passcode, never the key', async ({ page, mock }) => {
   await page.goto(BASE);
   await page.click('#setBtn');
