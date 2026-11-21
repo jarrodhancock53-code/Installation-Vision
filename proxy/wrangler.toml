@@ -1,0 +1,7 @@
+name = "buildlens-proxy"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+ALLOWED_ORIGIN = "*"   # set to your app origin, e.g. "https://you.github.io"
+# Secrets (not in this file):  wrangler secret put ANTHROPIC_API_KEY   /   wrangler secret put PASSCODES
