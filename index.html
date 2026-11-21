@@ -166,7 +166,7 @@ const Settings = {
   defaults() {
     return {
       conn: 'direct', apiKey: '', proxyUrl: '', passcode: '',
-      models: { parse: 'claude-opus-5-5', inventory: 'claude-sonnet-5-5', step: 'claude-sonnet-5-5', check: 'claude-sonnet-5-5' },
+      models: { parse: 'claude-opus-5-5', vehicle: 'claude-haiku-5-5', inventory: 'claude-sonnet-5-5', step: 'claude-sonnet-5-5', check: 'claude-sonnet-5-5' },
       prices: { ...DEFAULT_PRICES },
     };
   },
@@ -359,6 +359,13 @@ async function readSSE(resp, onProgress) {
   }
   return { text, usage, stop, model, err };
 }
+function apiTarget(s = Settings.load()) {
+  const headers = { 'content-type': 'application/json', 'anthropic-version': API_VERSION };
+  let url;
+  if (s.conn === 'proxy') { url = s.proxyUrl.replace(/\/+$/, ''); if (!/\/v1\/messages$/.test(url)) url += '/v1/messages'; headers['x-buildlens-passcode'] = s.passcode; }
+  else { url = API_URL; headers['x-api-key'] = s.apiKey; headers['anthropic-dangerous-direct-browser-access'] = 'true'; }
+  return { url, headers };
+}
 async function callClaude({ call, model, system, guideJson, content, schema, effort, maxTokens = 8000, signal, onProgress, buildId }) {
   const s = Settings.load();
   if (!Settings.ready(s)) throw new UserError('Add your API key (or proxy passcode) in Settings first.');
@@ -368,11 +375,8 @@ async function callClaude({ call, model, system, guideJson, content, schema, eff
   const body = { model, max_tokens: maxTokens, stream: true, system: sys, messages: [{ role: 'user', content }],
     output_config: { format: { type: 'json_schema', schema } } };
   if (effort) body.output_config.effort = effort;
-  const headers = { 'content-type': 'application/json', 'anthropic-version': API_VERSION };
+  const { url, headers } = apiTarget(s);
   if (FALLBACK_MODELS.has(model)) { body.fallbacks = 'default'; headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; }
-  let url;
-  if (s.conn === 'proxy') { url = s.proxyUrl.replace(/\/+$/, ''); if (!/\/v1\/messages$/.test(url)) url += '/v1/messages'; headers['x-buildlens-passcode'] = s.passcode; }
-  else { url = API_URL; headers['x-api-key'] = s.apiKey; headers['anthropic-dangerous-direct-browser-access'] = 'true'; }
   if (sessionStorage.getItem('bl:noFallbacks')) { delete body.fallbacks; delete headers['anthropic-beta']; }
   if (JSON.stringify(body).length > MAX_BODY) throw new UserError('That is too much to send at once. Remove pages you don’t need (other languages, warranty pages) and try again.');
   const t0 = performance.now(); let resp, lastErr;
@@ -411,6 +415,70 @@ async function callClaude({ call, model, system, guideJson, content, schema, eff
   entry.ok = true; await logCall(entry);
   return data;
 }
+// Web tools: Haiku models use the basic tool versions; Sonnet/Opus use the dynamic-filtering versions.
+function webTools(model) {
+  const basic = /haiku/.test(model);
+  return [
+    { type: basic ? 'web_search_20250305' : 'web_search_20260209', name: 'web_search', max_uses: 5 },
+    { type: basic ? 'web_fetch_20250910' : 'web_fetch_20260209', name: 'web_fetch', max_uses: 4, max_content_tokens: 60000 },
+  ];
+}
+function extractJson(text) {
+  const t = text.replace(/```(?:json)?/g, '');
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a < 0 || b <= a) throw new Error('no json');
+  return JSON.parse(t.slice(a, b + 1));
+}
+async function callClaudeWithWeb({ call, model, system, prompt, schema, effort = 'medium', signal, buildId }) {
+  const s = Settings.load();
+  if (!Settings.ready(s)) throw new UserError('Add your API key (or proxy passcode) in Settings first.');
+  const { url, headers } = apiTarget(s);
+  const messages = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
+  const body = { model, max_tokens: 16000, system: [{ type: 'text', text: `CALL: ${call}\n\n${system}` }], messages, tools: webTools(model), output_config: { effort } };
+  const t0 = performance.now(); const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, web_search_requests: 0 };
+  let finalContent = [], served = model, stop = null;
+  for (let turn = 0; turn < 5; turn++) {
+    let resp;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal }); }
+      catch (e) { if (e.name === 'AbortError') throw e; resp = null; if (attempt === 0) { await sleep(2000); continue; } }
+      if (resp && [429, 500, 529].includes(resp.status) && attempt === 0) { await sleep(2000); continue; }
+      break;
+    }
+    if (!resp) { await logCall({ buildId, call, model, ok: false, error: 'offline', latencyMs: performance.now() - t0 }); throw new ApiError("No connection. Tap Retry when you're back online.", { kind: 'offline', retryable: true }); }
+    if (!resp.ok) {
+      let detail = ''; try { detail = (await resp.json())?.error?.message || ''; } catch {}
+      let msg = `The AI service returned an error (${resp.status}). ${detail}`;
+      if (resp.status === 401) msg = s.conn === 'proxy' ? 'The proxy rejected the passcode. Check it in Settings.' : 'The API key was rejected. Check it in Settings.';
+      else if (/web.?(search|fetch)/i.test(detail)) msg = 'Web search isn’t available for this API key. An admin can turn it on in the Anthropic Console (Settings → Privacy). Until then, upload the vehicle manual pages instead.';
+      await logCall({ buildId, call, model, ok: false, error: msg, latencyMs: performance.now() - t0 });
+      throw new ApiError(msg, { status: resp.status, retryable: [408, 429, 500, 502, 503, 504, 529].includes(resp.status) });
+    }
+    const m = await resp.json(); served = m.model || served; stop = m.stop_reason;
+    for (const k of ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']) usage[k] += m.usage?.[k] || 0;
+    usage.web_search_requests += m.usage?.server_tool_use?.web_search_requests || 0;
+    finalContent = m.content || [];
+    if (stop !== 'pause_turn') break;
+    // Long server-side tool loop: send the partial turn back and the server resumes it.
+    if (messages.length > 1 && messages.at(-1).role === 'assistant') messages.pop();
+    messages.push({ role: 'assistant', content: finalContent });
+  }
+  const cost = costOf(served, usage) + usage.web_search_requests * 0.01;
+  const entry = { buildId, call, model, servedModel: served, latencyMs: performance.now() - t0, usage, cost, stopReason: stop, ok: false };
+  if (stop === 'refusal') { entry.error = 'refusal'; await logCall(entry); throw new ApiError('The AI declined this request. Try again, or upload the pages instead.', { kind: 'refusal', retryable: true }); }
+  if (stop === 'pause_turn') { entry.error = 'too many search rounds'; await logCall(entry); throw new ApiError('The search took too many rounds. Tap Retry, or upload the pages instead.', { retryable: true }); }
+  const text = finalContent.filter(b => b.type === 'text').map(b => b.text).join('');
+  let data;
+  try { data = extractJson(text); }
+  catch {
+    // Reformat the free-text answer into the schema with a small structured-output call.
+    entry.error = 'reformatted'; await logCall(entry);
+    return callClaude({ call: call + 'Repair', model: 'claude-haiku-5-5', system: 'Convert the research notes into the JSON schema. Do not add facts that are not in the notes.', content: [{ type: 'text', text: text || '(no notes)' }], schema, effort: 'low', maxTokens: 6000, signal, buildId });
+  }
+  entry.ok = true; await logCall(entry);
+  return data;
+}
+
 async function logCall(e) { try { await DB.put('log', { ts: Date.now(), type: 'call', ...e }); } catch (x) { console.warn(x); } }
 async function logEvent(e) { try { await DB.put('log', { ts: Date.now(), ...e }); } catch (x) { console.warn(x); } }
 
@@ -426,11 +494,18 @@ const GUIDE_SCHEMA = obj({
   parts: arr(obj({ id: S, name: S, qty: I, description: S, visualCues: S })),
   hardware: arr(obj({ id: S, name: S, qty: I, sizeHint: S })),
   tools: arr(S),
-  vehicleFacts: arr(obj({ fact: S, vehiclePage: I })),
+  vehicleFacts: arr(obj({ fact: S, source: S })),
   steps: arr(obj({
     n: I, title: S, instruction: S, modes: arr(S), parts: arr(S), hardware: arr(obj({ id: S, qty: I })), tools: arr(S),
     manualPage: I, manualBox: BOX, cautions: arr(S), checkCriteria: arr(S), humanChecks: arr(obj({ check: S, howTo: S })),
   })),
+});
+const VEHICLE_SCHEMA = obj({
+  found: { type: 'boolean' },
+  manual: obj({ title: S, year: { anyOf: [I, { type: 'null' }] }, make: S, model: S, url: S, publisher: S, isOfficial: { type: 'boolean' } }),
+  matchNotes: S,
+  facts: arr(obj({ topic: { type: 'string', enum: ['tether_anchor', 'lower_anchors', 'belt_locking', 'inflatable_belt', 'head_restraint', 'seating_position', 'airbag', 'other'] }, fact: S, quote: S, page: S, url: S })),
+  notFoundReason: NSTR,
 });
 const DETECT_SCHEMA = obj({
   items: arr(obj({ ref: S, box: BOX, confidence: N })),
@@ -467,8 +542,33 @@ const PARSE_SYSTEM = `You turn an assembly or installation manual into a structu
 - Split install modes (e.g. rear-facing with lower anchors, rear-facing with seat belt, forward-facing, booster) into modes; each step lists the mode ids it applies to (empty list = all modes).
 - parts use the manual's letters (A, B, ...) as id; hardware uses the manual's numbers as id. sizeHint describes size and look; visualCues says how to tell a part from lookalikes.
 - checkCriteria: things a photo can verify. humanChecks: things only a hands-on check can verify (tightness, harness pinch test, recline indicator, cam locks turned, screws fully tight), each with a one-line howTo.
-- vehicleFacts: ONLY facts read from vehicle manual pages, with vehicleManual page number. If no vehicle manual pages were given, return an empty list, and for every step that depends on the car (tether anchor, lower anchor positions, belt locking, inflatable belts, headrest removal) add a humanCheck with a how-to (e.g. "Find the tether anchor symbol on the seat back or rear shelf. It is not a cargo hook."). Never state vehicle facts from general knowledge.
+- vehicleFacts: ONLY facts read from vehicle manual pages (source = "Vehicle manual page N") or listed under CONFIRMED VEHICLE FACTS (copy them, source as given). If neither was given, return an empty list, and for every step that depends on the car (tether anchor, lower anchor positions, belt locking, inflatable belts, headrest removal) add a humanCheck with a how-to (e.g. "Find the tether anchor symbol on the seat back or rear shelf. It is not a cargo hook."). Never state vehicle facts from general knowledge.
 - Keep instructions plain and short.`;
+
+const VEHICLE_SYSTEM = `You find a car's official owner's manual and extract its child safety seat (child restraint) information.
+- Use web_search to find the manufacturer's own owner's manual for the EXACT model year, make and model given. Prefer the manufacturer's owner site or its official PDF. Do not use forums, blogs, dealer pages, retailer listings or car-seat review sites.
+- Use web_fetch on the manual's child restraint / child safety section (an HTML section page if the manufacturer has one, otherwise the PDF).
+- Extract only what that section says about: top tether anchor locations, which seating positions have lower anchors (LATCH/ISOFIX) and whether the center seat may borrow them, how the seat belt locks for a car seat (switchable retractor, locking clip), inflatable seat belts, head restraint removal, airbag warnings.
+- Every fact must include a short verbatim quote from the manual and its page number or section name, and the URL you read it from.
+- If you cannot find the official manual for that exact year, or you cannot read its child-seat section, set found to false, facts to [], and explain in notFoundReason. Never fill facts from general knowledge.
+- manual.year is the model year printed on the manual. isOfficial is true only when the source is the manufacturer.
+- Final answer: ONE JSON object only, no other text, with exactly these keys: found (boolean), manual {title, year (integer or null), make, model, url, publisher, isOfficial}, matchNotes, facts [{topic: tether_anchor|lower_anchors|belt_locking|inflatable_belt|head_restraint|seating_position|airbag|other, fact, quote, page, url}], notFoundReason (string or null).`;
+async function apiFindVehicleManual(vehicle, signal, buildId) {
+  const s = Settings.load();
+  return callClaudeWithWeb({ call: 'findVehicleManual', model: s.models.vehicle, system: VEHICLE_SYSTEM, schema: VEHICLE_SCHEMA, effort: 'medium', signal, buildId,
+    prompt: `Vehicle: model year ${vehicle.year}, make ${vehicle.make}, model ${vehicle.model}. Find its official owner's manual and extract the child restraint facts.` });
+}
+const VEHICLE_CACHE = 'bl:vehicles';
+const vehicleKey = v => [v.year, v.make, v.model].map(x => String(x || '').trim().toLowerCase()).join('|');
+const vehicleCache = { get(v) { return (lsGet(VEHICLE_CACHE) || {})[vehicleKey(v)] || null; }, set(v, r) { const a = lsGet(VEHICLE_CACHE) || {}; a[vehicleKey(v)] = r; lsSet(VEHICLE_CACHE, a); } };
+// A lookup is usable only if it found an official manual for the same model year, with quoted facts.
+function vehicleLookupUsable(r, v) {
+  return !!(r?.found && r.manual?.isOfficial && r.facts?.length && (r.manual.year == null || String(r.manual.year) === String(v.year).trim()) && r.facts.every(f => f.quote?.trim()));
+}
+function confirmedVehicleFacts(b) {
+  const vm = b.vehicleManual;
+  return vm?.confirmed && vm.result?.facts?.length ? vm.result.facts.map(f => ({ fact: f.fact, source: `${vm.result.manual.title}${f.page ? ', ' + f.page : ''}`, quote: f.quote, url: f.url || vm.result.manual.url })) : [];
+}
 
 function guideForCalls(build) {
   const g = build.guide; if (!g) return '';
@@ -488,7 +588,9 @@ async function manualCropBlock(build, step) {
 async function apiParseManual(build, signal, onProgress) {
   const s = Settings.load(); const content = [];
   const v = build.vehicle || {};
-  content.push({ type: 'text', text: `Product category chosen by the user: ${build.category}.` + (build.category === 'car_seat' ? ` Vehicle: ${v.year || '?'} ${v.make || '?'} ${v.model || '?'}. Vehicle manual pages provided: ${build.pages.some(p => p.source === 'vehicle') ? 'yes' : 'no'}.` : '') });
+  content.push({ type: 'text', text: `Product category chosen by the user: ${build.category}.` + (build.category === 'car_seat' ? ` Vehicle: ${v.year || '?'} ${v.make || '?'} ${v.model || '?'}. Vehicle manual pages provided: ${build.pages.some(p => p.source === 'vehicle') ? 'yes' : 'no'}. Confirmed vehicle facts provided: ${confirmedVehicleFacts(build).length ? 'yes' : 'no'}.` : '') });
+  const vf = confirmedVehicleFacts(build);
+  if (vf.length) content.push({ type: 'text', text: 'CONFIRMED VEHICLE FACTS (from the official owner\'s manual, confirmed by the user):\n' + vf.map(f => `- ${f.fact} [source: ${f.source}] quote: "${f.quote}"`).join('\n') });
   let n = 0, vn = 0;
   for (const p of build.pages) {
     const label = p.source === 'vehicle' ? `Vehicle manual page ${++vn}` : `Manual page ${++n}`;
@@ -735,14 +837,14 @@ SCREENS.settings = async app => {
   app.append(h('h2', {}, 'Settings'),
     h('div', { class: 'card' }, field('Connection', conn), directBox, proxyBox),
     h('div', { class: 'card' }, h('b', {}, 'Models'), dl,
-      field('Manual parsing', mIn('parse')), field('Inventory photo', mIn('inventory')), field('Step photos (grab and place)', mIn('step')), field('Check photos', mIn('check')),
+      field('Manual parsing', mIn('parse')), field('Finding the car’s manual (web search)', mIn('vehicle')), field('Inventory photo', mIn('inventory')), field('Step photos (grab and place)', mIn('step')), field('Check photos', mIn('check')),
       h('div', { class: 'muted small' }, 'Swap step or check calls to claude-haiku-5-5 to compare accuracy and cost; the Log screen shows hit rates per model.')),
     h('div', { class: 'card' }, h('b', {}, 'Price per million tokens (input, output, USD)'), pricesBox),
     h('div', { class: 'card' }, h('b', {}, 'Storage'), h('p', { class: 'muted small' }, 'Safari may delete saved builds for sites not opened in 7 days unless BuildLens is added to the home screen.'),
       h('button', { class: 'btn danger', id: 'clearData', onclick: async () => { if (!confirm('Delete all builds, photos, saved guides and the log?')) return; indexedDB.deleteDatabase('buildlens'); DB.db?.close(); DB.db = null; lsSet(GUIDE_CACHE, null); lsSet(BUILD_ACTIVE, null); alert('Cleared.'); go('home'); } }, 'Clear all data')));
   const collect = () => {
     const n = Settings.load(); n.conn = conn.value; n.apiKey = key.value.trim(); n.proxyUrl = purl.value.trim(); n.passcode = pass.value.trim();
-    for (const k of ['parse', 'inventory', 'step', 'check']) n.models[k] = $('#model_' + k).value.trim() || n.models[k];
+    for (const k of ['parse', 'vehicle', 'inventory', 'step', 'check']) n.models[k] = $('#model_' + k).value.trim() || n.models[k];
     for (const inp of pricesBox.querySelectorAll('input')) { const m = inp.dataset.m; n.prices[m] = n.prices[m] || [0, 0]; n.prices[m][+inp.dataset.k] = parseFloat(inp.value) || 0; }
     return n;
   };
@@ -770,6 +872,7 @@ SCREENS.newbuild = async app => {
   const start = h('button', { class: 'btn primary block', id: 'createBuild', onclick: async () => {
     build = { id: uid(), createdAt: Date.now(), category: st.category, job: st.category === 'car_seat' ? st.job : null, vehicle: st.category === 'car_seat' ? { ...st.vehicle } : null,
       pages: [], state: 'MANUAL', stepIndex: 0, phase: 'GRAB', stepData: {} };
+    if (build.vehicle) { const c = vehicleCache.get(build.vehicle); if (c) build.vehicleManual = { ...c }; }
     await saveBuild(); lsSet(BUILD_ACTIVE, build.id); ui = {}; go('manual');
   } }, 'Next: add the manual');
   const validate = () => { start.disabled = !st.category || (st.category === 'car_seat' && !(st.vehicle.make && st.vehicle.model && st.vehicle.year)); };
@@ -815,7 +918,7 @@ SCREENS.manual = async app => {
   if (saved.length && !build.pages.length) {
     app.append(h('div', { class: 'card' }, h('b', {}, 'Use a manual you already read'),
       saved.map(([k, v]) => h('button', { class: 'btn choice', 'data-saved': k, onclick: async () => {
-        build.pages = v.pages.filter(p => p.source === 'seat'); build.guide = v.guide; build.manualHash = k; setState('PARSED'); await saveBuild(); go('review'); } }, v.guide.product.name || 'Saved guide'))));
+        build.pages = v.pages.filter(p => p.source === 'seat'); build.guide = { ...v.guide, vehicleFacts: confirmedVehicleFacts(build) }; build.manualHash = k; /* never carry another car's facts */ setState('PARSED'); await saveBuild(); go('review'); } }, v.guide.product.name || 'Saved guide'))));
   }
   const grid = async source => {
     const pages = build.pages.filter(p => p.source === source);
@@ -833,13 +936,48 @@ SCREENS.manual = async app => {
     h('button', { class: 'btn grow', 'data-add': source + '-camera', onclick: () => guarded(async () => { const f = await pickFiles({ camera: true }); if (f.length) { await addManualFiles(f, source); render(); } }) }, 'Take photo'),
     h('button', { class: 'btn grow', 'data-add': source + '-file', onclick: () => guarded(async () => { const f = await pickFiles({ multiple: true }); if (f.length) { await addManualFiles(f, source); render(); } }) }, 'Upload PDF or images'));
   app.append(h('div', { class: 'card', id: 'seatPages' }, h('b', {}, car ? 'Car seat manual' : 'Manual'), await grid('seat'), adders('seat')));
-  if (car) app.append(h('div', { class: 'card', id: 'vehiclePages' }, h('b', {}, 'Vehicle manual — child-seat section (optional)'),
-    h('p', { class: 'muted small' }, 'Adds tether and lower-anchor locations and belt locking for this car. Without it, those become hands-on checks.'), await grid('vehicle'), adders('vehicle')));
+  if (car) app.append(vehicleLookupCard());
+  if (car) app.append(h('div', { class: 'card', id: 'vehiclePages' }, h('b', {}, build.vehicleManual?.confirmed ? 'Or upload vehicle manual pages (not needed)' : 'Or upload the vehicle manual’s child-seat pages (optional)'),
+    h('p', { class: 'muted small' }, 'Adds tether and lower-anchor locations and belt locking for this car. Without a vehicle manual, those become hands-on checks.'), await grid('vehicle'), adders('vehicle')));
   const read = h('button', { class: 'btn primary block', id: 'readManual', disabled: !build.pages.some(p => p.source === 'seat'), onclick: () => guarded(readManual) }, 'Read manual');
   setBar([read]);
 };
+function vehicleLookupCard() {
+  const v = build.vehicle || {}; const vm = build.vehicleManual; const r = vm?.result;
+  const car = `${v.year} ${v.make} ${v.model}`;
+  const card = h('div', { class: 'card', id: 'vehicleLookup' }, h('b', {}, `Vehicle manual — ${car}`));
+  const find = h('button', { class: 'btn block', id: 'findVehicle', style: 'margin-top:10px', onclick: () => guarded(async () => {
+    const res = await busy(`Finding the ${car} owner’s manual…`, sig => apiFindVehicleManual(v, sig, build.id));
+    build.vehicleManual = { result: res, usable: vehicleLookupUsable(res, v), confirmed: false, at: Date.now() };
+    vehicleCache.set(v, build.vehicleManual);
+    await saveBuild(); render();
+  }) }, vm ? 'Search again' : 'Find my car’s manual');
+  if (!vm) { card.append(h('p', { class: 'muted small' }, 'BuildLens can look up your car’s official owner’s manual and read its child-seat section (about 1–5¢). You confirm it before anything is used.'), find); return card; }
+  if (vm.confirmed) {
+    card.append(h('div', { class: 'banner ok', id: 'vehicleConfirmed' }, `✓ Using ${r.manual.title}`), factsList(r),
+      h('button', { class: 'btn', style: 'margin-top:8px', id: 'unconfirmVehicle', onclick: async () => { build.vehicleManual.confirmed = false; await saveBuild(); render(); } }, 'Don’t use this'));
+    return card;
+  }
+  if (!vm.usable) {
+    const why = !r?.found ? (r?.notFoundReason || 'No official manual found.') : !r.manual?.isOfficial ? 'The only source found was not the carmaker’s own manual.' : (r.manual.year != null && String(r.manual.year) !== String(v.year).trim()) ? `The manual found is for ${r.manual.year}, not ${v.year}.` : 'The manual found didn’t include quotable child-seat details.';
+    card.append(h('div', { class: 'banner warn', id: 'vehicleNotFound' }, `Couldn’t use a manual for this car. ${why} Car-specific items will be hands-on checks, or upload the pages below.`), find);
+    return card;
+  }
+  card.append(h('p', {}, 'Found: ', h('a', { href: r.manual.url, target: '_blank', rel: 'noopener', id: 'vehicleManualLink' }, r.manual.title), h('span', { class: 'muted small' }, ` · ${r.manual.publisher}${r.manual.year ? ' · ' + r.manual.year : ''}`)),
+    r.matchNotes ? h('p', { class: 'muted small' }, r.matchNotes) : null, factsList(r),
+    h('p', { class: 'small' }, 'Is this the manual for your car? Check the year and model on the link.'),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary grow', id: 'confirmVehicle', onclick: async () => { build.vehicleManual.confirmed = true; vehicleCache.set(v, build.vehicleManual); await logEvent({ type: 'vehicleConfirm', buildId: build.id, model: Settings.load().models.vehicle, right: true }); await saveBuild(); render(); } }, 'Yes, that’s my car'),
+      h('button', { class: 'btn grow', id: 'rejectVehicle', onclick: async () => { build.vehicleManual.usable = false; build.vehicleManual.result = { ...r, found: false, notFoundReason: 'You said it wasn’t your car’s manual.' }; vehicleCache.set(v, build.vehicleManual); await logEvent({ type: 'vehicleConfirm', buildId: build.id, model: Settings.load().models.vehicle, right: false }); await saveBuild(); render(); } }, 'Not my car')), find);
+  return card;
+}
+function factsList(r) {
+  return h('ul', { class: 'plain', id: 'vehicleFactsList' }, (r.facts || []).map(f => h('li', {}, h('b', {}, f.fact), h('div', { class: 'muted small' }, `“${f.quote}” — ${f.page || 'owner’s manual'}`))));
+}
 async function readManual() {
-  const hash = await hashPages(build.pages);
+  const vf = confirmedVehicleFacts(build);
+  let hash = await hashPages(build.pages);
+  if (vf.length) hash += ':vf:' + vehicleKey(build.vehicle) + ':' + vf.length;
   const cached = guideCache.get(hash);
   if (cached) { build.guide = cached.guide; build.manualHash = hash; }
   else {
@@ -849,7 +987,12 @@ async function readManual() {
     build.guide = guide; build.manualHash = hash;
     guideCache.set(hash, { guide, pages: build.pages.map(({ key, w, h, source }) => ({ key, w, h, source })), savedAt: Date.now() });
   }
-  if (build.category === 'car_seat' && build.guide.product.category !== 'car_seat') build.guide.product.category = 'car_seat';
+  if (build.category === 'car_seat') {
+    if (build.guide.product.category !== 'car_seat') build.guide.product.category = 'car_seat';
+    // Vehicle facts may only come from the vehicle manual pages or the user-confirmed lookup.
+    const hasPages = build.pages.some(p => p.source === 'vehicle');
+    build.guide.vehicleFacts = [...vf, ...(hasPages ? (build.guide.vehicleFacts || []).filter(f => /vehicle manual page/i.test(f.source || '')) : [])];
+  }
   setState('PARSED'); await saveBuild(); go('review');
 }
 
@@ -862,7 +1005,7 @@ SCREENS.review = async app => {
     for (const m of g.modes) app.append(h('button', { class: 'btn choice' + (build.modeId === m.id ? ' sel' : ''), 'data-mode': m.id, onclick: async () => { build.modeId = m.id; await saveBuild(); render(); } }, h('b', {}, m.label), m.description ? h('div', { class: 'muted small' }, m.description) : null));
   }
   if (car) app.append(g.vehicleFacts?.length
-    ? h('div', { class: 'card' }, h('b', {}, 'From your vehicle manual'), h('ul', { class: 'plain' }, g.vehicleFacts.map(f => h('li', {}, f.fact, h('span', { class: 'muted small' }, ` (vehicle p. ${f.vehiclePage})`)))))
+    ? h('div', { class: 'card' }, h('b', {}, 'From your vehicle manual'), h('ul', { class: 'plain' }, g.vehicleFacts.map(f => h('li', {}, f.fact, h('span', { class: 'muted small' }, ` (${f.source || 'vehicle manual'})`)))))
     : h('div', { class: 'banner info' }, "No vehicle manual added: car-specific items (tether anchor, lower anchors, belt locking) will be hands-on checks."));
   if (g.parts?.length) app.append(h('h3', {}, 'Parts'), h('div', { class: 'chips' }, g.parts.map(p => h('span', { class: 'chip g', title: p.description }, h('b', {}, p.id), ` ${p.name}${p.qty > 1 ? ' ×' + p.qty : ''}`))));
   if (g.hardware?.length) app.append(h('h3', {}, 'Hardware'), h('div', { class: 'chips' }, g.hardware.map(p => h('span', { class: 'chip a', title: p.sizeHint }, h('b', {}, p.id), ` ${p.name} ×${p.qty}`))));
