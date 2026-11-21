@@ -586,13 +586,13 @@ async function apiFindSeatManual(seat, signal, buildId) {
 }
 const SEAT_CACHE = 'bl:seats';
 const seatKey = x => [x.brand, x.model].map(v => String(v || '').trim().toLowerCase()).join('|');
-const seatCache = { get(x) { return (lsGet(SEAT_CACHE) || {})[seatKey(x)] || null; }, set(x, r) { const a = lsGet(SEAT_CACHE) || {}; a[seatKey(x)] = r; lsSet(SEAT_CACHE, a); } };
+const seatCache = { del(x) { const a = lsGet(SEAT_CACHE) || {}; delete a[seatKey(x)]; lsSet(SEAT_CACHE, a); }, get(x) { return (lsGet(SEAT_CACHE) || {})[seatKey(x)] || null; }, set(x, r) { const a = lsGet(SEAT_CACHE) || {}; a[seatKey(x)] = r; lsSet(SEAT_CACHE, a); } };
 function seatLookupUsable(r) { return !!(r?.found && r.manual?.isOfficial && /^https:\/\//i.test(r.manual.url || '')); }
 // The seat manual is read from the web only when the user confirmed a link and did not upload their own pages.
 function seatOnlineUrl(b) { return !b.pages.some(p => p.source === 'seat') && b.seatManual?.confirmed ? b.seatManual.result.manual.url : null; }
 const VEHICLE_CACHE = 'bl:vehicles';
 const vehicleKey = v => [v.year, v.make, v.model].map(x => String(x || '').trim().toLowerCase()).join('|');
-const vehicleCache = { get(v) { return (lsGet(VEHICLE_CACHE) || {})[vehicleKey(v)] || null; }, set(v, r) { const a = lsGet(VEHICLE_CACHE) || {}; a[vehicleKey(v)] = r; lsSet(VEHICLE_CACHE, a); } };
+const vehicleCache = { del(v) { const a = lsGet(VEHICLE_CACHE) || {}; delete a[vehicleKey(v)]; lsSet(VEHICLE_CACHE, a); }, get(v) { return (lsGet(VEHICLE_CACHE) || {})[vehicleKey(v)] || null; }, set(v, r) { const a = lsGet(VEHICLE_CACHE) || {}; a[vehicleKey(v)] = r; lsSet(VEHICLE_CACHE, a); } };
 // A lookup is usable only if it found an official manual for the same model year, with quoted facts.
 function vehicleLookupUsable(r, v) {
   return !!(r?.found && r.manual?.isOfficial && r.facts?.length && (r.manual.year == null || String(r.manual.year) === String(v.year).trim()) && r.facts.every(f => f.quote?.trim()));
@@ -954,8 +954,10 @@ SCREENS.manual = async app => {
   const saved = Object.entries(guideCache.all()).filter(([, v]) => v.guide?.product?.category === build.category);
   if (saved.length && !build.pages.length) {
     app.append(h('div', { class: 'card' }, h('b', {}, 'Use a manual you already read'),
-      saved.map(([k, v]) => h('button', { class: 'btn choice', 'data-saved': k, onclick: async () => {
-        build.pages = v.pages.filter(p => p.source === 'seat'); build.guide = { ...v.guide, vehicleFacts: confirmedVehicleFacts(build) }; build.manualHash = k; /* never carry another car's facts */ setState('PARSED'); await saveBuild(); go('review'); } }, v.guide.product.name || 'Saved guide'))));
+      saved.map(([k, v]) => h('div', { class: 'row' },
+        h('button', { class: 'btn choice grow', 'data-saved': k, onclick: async () => {
+          build.pages = v.pages.filter(p => p.source === 'seat'); build.guide = { ...v.guide, vehicleFacts: confirmedVehicleFacts(build) }; build.manualHash = k; /* never carry another car's facts */ setState('PARSED'); await saveBuild(); go('review'); } }, v.guide.product.name || 'Saved guide'),
+        h('button', { class: 'btn danger', 'data-del-saved': k, 'aria-label': 'Forget this saved manual', onclick: () => { guideCache.del(k); render(); } }, '✕')))));
   }
   const grid = async source => {
     const pages = build.pages.filter(p => p.source === source);
@@ -986,7 +988,7 @@ function seatLookupCard() {
   if (sm?.confirmed) {
     card.append(h('div', { class: 'banner ok', id: 'seatConfirmed' }, `✓ Using ${r.manual.title}`),
       h('p', { class: 'muted small' }, h('a', { href: r.manual.url, target: '_blank', rel: 'noopener' }, 'Open the PDF'), ` · ${r.manual.publisher}. Reading it costs a little more than photos (roughly 20–70¢); the guide is saved so it’s free next time.`),
-      h('button', { class: 'btn', id: 'unconfirmSeat', onclick: async () => { build.seatManual.confirmed = false; await saveBuild(); render(); } }, 'Don’t use this'));
+      h('button', { class: 'btn', id: 'removeSeat', onclick: () => removeSeat() }, 'Remove'));
     return card;
   }
   const brand = h('input', { type: 'text', id: 'seat_brand', placeholder: 'Brand (e.g. Graco)', value: st.brand, oninput: e => { st.brand = e.target.value; sync(); } });
@@ -1008,12 +1010,32 @@ function seatLookupCard() {
     h('p', { class: 'small' }, 'Open the link and check it’s your seat’s model. Reading it costs roughly 20–70¢.'),
     h('button', { class: 'btn primary block', id: 'confirmSeat', onclick: async () => { build.seatManual.confirmed = true; await logEvent({ type: 'seatConfirm', buildId: build.id, model: Settings.load().models.vehicle, right: true }); await saveBuild(); render(); } }, 'Yes, that’s my seat'));
   card.append(find);
+  if (sm || st.brand || st.model) card.append(h('button', { class: 'btn', id: 'removeSeat', style: 'margin-top:8px', onclick: () => removeSeat() }, 'Remove / start over'));
   return card;
+}
+async function removeSeat() {
+  if (build.seat) seatCache.del(build.seat);
+  build.seatManual = null; build.seat = { brand: '', model: '' }; await saveBuild(); render();
+}
+async function removeVehicleManual() {
+  vehicleCache.del(build.vehicle); build.vehicleManual = null; await saveBuild(); render();
 }
 function vehicleLookupCard() {
   const v = build.vehicle || {}; const vm = build.vehicleManual; const r = vm?.result;
   const car = `${v.year} ${v.make} ${v.model}`;
-  const card = h('div', { class: 'card', id: 'vehicleLookup' }, h('b', {}, `Vehicle manual — ${car}`));
+  const card = h('div', { class: 'card', id: 'vehicleLookup' }, h('div', { class: 'row' }, h('b', { class: 'grow', id: 'vehicleTitle' }, `Vehicle — ${car}`),
+    h('button', { class: 'btn', id: 'editVehicle', onclick: () => { ui.editVeh = !ui.editVeh; render(); } }, ui.editVeh ? 'Cancel' : 'Change car')));
+  if (ui.editVeh) {
+    const f = (k, ph, type = 'text') => h('input', { type, id: 'edit_' + k, placeholder: ph, value: v[k] || '' });
+    card.append(h('div', { class: 'row', style: 'margin-top:8px' }, h('div', { class: 'grow' }, f('year', 'Year', 'number')), h('div', { class: 'grow' }, f('make', 'Make')), h('div', { class: 'grow' }, f('model', 'Model'))),
+      h('button', { class: 'btn primary block', id: 'saveVehicle', style: 'margin-top:8px', onclick: async () => {
+        const nv = { year: $('#edit_year').value.trim(), make: $('#edit_make').value.trim(), model: $('#edit_model').value.trim() };
+        if (!nv.year || !nv.make || !nv.model) { alert('Enter the year, make and model.'); return; }
+        if (vehicleKey(nv) !== vehicleKey(v)) { const c = vehicleCache.get(nv); build.vehicle = nv; build.vehicleManual = c ? { ...c } : null; } // never keep another car's manual
+        ui.editVeh = false; await saveBuild(); render();
+      } }, 'Save car'));
+    return card;
+  }
   const find = h('button', { class: 'btn block', id: 'findVehicle', style: 'margin-top:10px', onclick: () => guarded(async () => {
     const res = await busy(`Finding the ${car} owner’s manual…`, sig => apiFindVehicleManual(v, sig, build.id));
     build.vehicleManual = { result: res, usable: vehicleLookupUsable(res, v), confirmed: false, at: Date.now() };
@@ -1023,12 +1045,13 @@ function vehicleLookupCard() {
   if (!vm) { card.append(h('p', { class: 'muted small' }, 'BuildLens can look up your car’s official owner’s manual and read its child-seat section (about 1–5¢). You confirm it before anything is used.'), find); return card; }
   if (vm.confirmed) {
     card.append(h('div', { class: 'banner ok', id: 'vehicleConfirmed' }, `✓ Using ${r.manual.title}`), factsList(r),
-      h('button', { class: 'btn', style: 'margin-top:8px', id: 'unconfirmVehicle', onclick: async () => { build.vehicleManual.confirmed = false; await saveBuild(); render(); } }, 'Don’t use this'));
+      h('button', { class: 'btn', style: 'margin-top:8px', id: 'removeVehicle', onclick: () => removeVehicleManual() }, 'Remove'));
     return card;
   }
   if (!vm.usable) {
     const why = !r?.found ? (r?.notFoundReason || 'No official manual found.') : !r.manual?.isOfficial ? 'The only source found was not the carmaker’s own manual.' : (r.manual.year != null && String(r.manual.year) !== String(v.year).trim()) ? `The manual found is for ${r.manual.year}, not ${v.year}.` : 'The manual found didn’t include quotable child-seat details.';
-    card.append(h('div', { class: 'banner warn', id: 'vehicleNotFound' }, `Couldn’t use a manual for this car. ${why} Car-specific items will be hands-on checks, or upload the pages below.`), find);
+    card.append(h('div', { class: 'banner warn', id: 'vehicleNotFound' }, `Couldn’t use a manual for this car. ${why} Car-specific items will be hands-on checks, or upload the pages below.`), find,
+      h('button', { class: 'btn', id: 'removeVehicle', style: 'margin-top:8px', onclick: () => removeVehicleManual() }, 'Clear'));
     return card;
   }
   card.append(h('p', {}, 'Found: ', h('a', { href: r.manual.url, target: '_blank', rel: 'noopener', id: 'vehicleManualLink' }, r.manual.title), h('span', { class: 'muted small' }, ` · ${r.manual.publisher}${r.manual.year ? ' · ' + r.manual.year : ''}`)),
@@ -1036,7 +1059,8 @@ function vehicleLookupCard() {
     h('p', { class: 'small' }, 'Is this the manual for your car? Check the year and model on the link.'),
     h('div', { class: 'row' },
       h('button', { class: 'btn primary grow', id: 'confirmVehicle', onclick: async () => { build.vehicleManual.confirmed = true; vehicleCache.set(v, build.vehicleManual); await logEvent({ type: 'vehicleConfirm', buildId: build.id, model: Settings.load().models.vehicle, right: true }); await saveBuild(); render(); } }, 'Yes, that’s my car'),
-      h('button', { class: 'btn grow', id: 'rejectVehicle', onclick: async () => { build.vehicleManual.usable = false; build.vehicleManual.result = { ...r, found: false, notFoundReason: 'You said it wasn’t your car’s manual.' }; vehicleCache.set(v, build.vehicleManual); await logEvent({ type: 'vehicleConfirm', buildId: build.id, model: Settings.load().models.vehicle, right: false }); await saveBuild(); render(); } }, 'Not my car')), find);
+      h('button', { class: 'btn grow', id: 'rejectVehicle', onclick: async () => { build.vehicleManual.usable = false; build.vehicleManual.result = { ...r, found: false, notFoundReason: 'You said it wasn’t your car’s manual.' }; vehicleCache.set(v, build.vehicleManual); await logEvent({ type: 'vehicleConfirm', buildId: build.id, model: Settings.load().models.vehicle, right: false }); await saveBuild(); render(); } }, 'Not my car')), find,
+    h('button', { class: 'btn', id: 'removeVehicle', style: 'margin-top:8px', onclick: () => removeVehicleManual() }, 'Remove'));
   return card;
 }
 function factsList(r) {
