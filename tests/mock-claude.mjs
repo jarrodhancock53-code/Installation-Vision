@@ -106,7 +106,12 @@ export function createMock() {
     const body = JSON.parse(req.postData());
     state.requests.push({ url: req.url(), headers: req.headers(), body, call: callOf(body) });
     if (callOf(body) === 'findVehicleManual') {
-      const kind = state.vehicle[0] || 'found';
+      let kind = state.vehicle[0] || 'found';
+      if (kind === 'tooLong' || kind === 'tooLongAlways') {
+        const hasFetch = body.tools.some(t => t.name === 'web_fetch');
+        if (hasFetch || kind === 'tooLongAlways') return route.fulfill({ status: 400, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'prompt is too long: 1280140 tokens > 1000000 maximum' } }) });
+        state.vehicle.shift(); kind = 'found';
+      }
       if (kind === 'webOff') { state.vehicle.shift(); return route.fulfill({ status: 400, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'Web search is not enabled for this organization.' } }) }); }
       const msg = vehicleMessage(body, kind);
       if (msg.stop_reason !== 'pause_turn') state.vehicle.shift();

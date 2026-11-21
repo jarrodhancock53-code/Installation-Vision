@@ -368,6 +368,8 @@ await test('find my car manual: Haiku web search, confirm, facts flow into the g
   const r = mock.state.requests.find(x => x.call === 'findVehicleManual');
   assert.equal(r.body.model, 'claude-haiku-5-5');
   assert.deepEqual(r.body.tools.map(t => t.type), ['web_search_20250305', 'web_fetch_20250910'], 'basic web tools on Haiku');
+  assert.match(r.body.system[0].text, /NEVER fetch a PDF/);
+  assert.ok(r.body.tools[1].max_uses <= 3 && r.body.tools[1].max_content_tokens <= 30000);
   assert.equal(r.body.stream, undefined);
   assert.equal(r.body.tool_choice, undefined);
   assert.equal(r.body.output_config.format, undefined, 'no structured-output constraint on the web call');
@@ -461,6 +463,29 @@ await test('find my car manual: free-text answer is repaired; Sonnet gets dynami
   await page.waitForSelector('#confirmVehicle');
   const last = mock.state.requests.filter(x => x.call === 'findVehicleManual').at(-1);
   assert.deepEqual(last.body.tools.map(t => t.type), ['web_search_20260209', 'web_fetch_20260209']);
+});
+
+await test('find my car manual: "prompt is too long" retries search-only, then explains', async ({ page, mock }) => {
+  await setKey(page);
+  mock.state.vehicle.push('tooLong');
+  await startCarBuild(page);
+  await page.click('#findVehicle');
+  await page.waitForSelector('#confirmVehicle');
+  const calls = mock.state.requests.filter(x => x.call === 'findVehicleManual');
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].body.tools.map(t => t.name), ['web_search'], 'retry has no fetch tool');
+  assert.match(calls[1].body.system[0].text, /web_search only/);
+  assert.equal(calls[1].body.messages.length, 1, 'retry starts fresh');
+  // if it still overflows: a plain message, no raw API error
+  await page.click('#confirmVehicle');
+  mock.state.vehicle.push('tooLongAlways');
+  await startCarBuild(page, { year: '2017', make: 'Subaru', model: 'Outback' });
+  await page.click('#findVehicle');
+  await page.waitForSelector('#errMsg');
+  const msg = await page.locator('#errMsg').innerText();
+  assert.match(msg, /whole owner’s manual/);
+  assert.doesNotMatch(msg, /1280140/);
+  assert.equal(await page.locator('#errRetry').count(), 0, 'no pointless retry button');
 });
 
 await test('proxy mode sends passcode, never the key', async ({ page, mock }) => {
