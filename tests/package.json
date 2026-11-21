@@ -2,6 +2,6 @@
   "name": "buildlens-tests",
   "private": true,
   "type": "module",
-  "scripts": { "fixtures": "python3 make_fixtures.py", "test": "node proxy.test.mjs && node e2e.mjs" },
+  "scripts": { "fixtures": "python3 make_fixtures.py", "test": "node check-syntax.mjs && node proxy.test.mjs && node e2e.mjs" },
   "devDependencies": { "pdfjs-dist": "4.10.38" }
 }

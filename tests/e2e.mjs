@@ -353,6 +353,116 @@ await test('fallback beta rejected: retries once without it, then stops sending 
   assert.equal(mock.state.requests[2].body.fallbacks, undefined, 'remembered for the session');
 });
 
+const startCarBuild = async (page, { year = '2021', make = 'Honda', model = 'CR-V', job = 'install' } = {}) => {
+  await page.click('#homeBtn'); await page.click('#newBuild'); await page.click('[data-cat=car_seat]');
+  await page.fill('#veh_year', year); await page.fill('#veh_make', make); await page.fill('#veh_model', model);
+  await page.click(`[data-job=${job}]`); await page.click('#createBuild');
+  await page.waitForSelector('#vehicleLookup');
+};
+
+await test('find my car manual: Haiku web search, confirm, facts flow into the guide', async ({ page, mock }) => {
+  await setKey(page);
+  await startCarBuild(page);
+  await page.click('#findVehicle');
+  await page.waitForSelector('#confirmVehicle');
+  const r = mock.state.requests.find(x => x.call === 'findVehicleManual');
+  assert.equal(r.body.model, 'claude-haiku-5-5');
+  assert.deepEqual(r.body.tools.map(t => t.type), ['web_search_20250305', 'web_fetch_20250910'], 'basic web tools on Haiku');
+  assert.equal(r.body.stream, undefined);
+  assert.equal(r.body.tool_choice, undefined);
+  assert.equal(r.body.output_config.format, undefined, 'no structured-output constraint on the web call');
+  assert.match(r.body.messages[0].content[0].text, /model year 2021, make Honda, model CR-V/);
+  assert.match(await page.locator('#vehicleManualLink').innerText(), /2021 Honda CR-V Owner's Manual/);
+  assert.match(await page.locator('#vehicleFactsList').innerText(), /outboard rear seats only[\s\S]*p\. 70/);
+  await page.click('#confirmVehicle');
+  await page.waitForSelector('#vehicleConfirmed');
+  await choose(page, '[data-add=seat-file]', [FX('carseat_manual.pdf')]);
+  await page.waitForSelector('#seatPages .thumb >> nth=1');
+  await page.click('#readManual');
+  await page.waitForSelector('[data-mode=rf_latch]');
+  const parse = mock.state.requests.find(x => x.call === 'parseManual');
+  const ptxt = parse.body.messages[0].content.filter(c => c.type === 'text').map(c => c.text).join('\n');
+  assert.match(ptxt, /CONFIRMED VEHICLE FACTS[\s\S]*center position using the lower anchors/);
+  assert.match(ptxt, /Confirmed vehicle facts provided: yes/);
+  const txt = await visibleText(page);
+  assert.match(txt, /From your vehicle manual/);
+  assert.match(txt, /2021 Honda CR-V Owner's Manual, p\. 72/);
+  // the log prices the web searches
+  await page.click('#logBtn'); await page.waitForSelector('#logTotal');
+  assert.match(await visibleText(page), /findVehicleManual/);
+});
+
+await test('find my car manual: pause_turn resumes, cache reused for the same car', async ({ page, mock }) => {
+  await setKey(page);
+  mock.state.vehicle.push('pause');
+  await startCarBuild(page);
+  await page.click('#findVehicle');
+  await page.waitForSelector('#confirmVehicle');
+  const calls = mock.state.requests.filter(x => x.call === 'findVehicleManual');
+  assert.equal(calls.length, 2, 'one resume after pause_turn');
+  assert.equal(calls[1].body.messages.at(-1).role, 'assistant');
+  assert.equal(calls[1].body.messages.at(-1).content[0].type, 'server_tool_use');
+  await page.click('#confirmVehicle');
+  await startCarBuild(page, { job: 'move' });
+  await page.waitForSelector('#vehicleConfirmed');
+  assert.equal(mock.state.requests.filter(x => x.call === 'findVehicleManual').length, 2, 'no new lookup for the same car');
+  // a different car must not reuse it
+  await startCarBuild(page, { year: '2018', make: 'Ford', model: 'Escape' });
+  assert.equal(await page.locator('#findVehicle').count(), 1);
+  assert.equal(await page.locator('#vehicleConfirmed').count(), 0);
+});
+
+await test('find my car manual: wrong year, unofficial, not found, rejected, web off', async ({ page, mock }) => {
+  await setKey(page);
+  await startCarBuild(page);
+  mock.state.vehicle.push('wrongYear');
+  await page.click('#findVehicle');
+  await page.waitForSelector('#vehicleNotFound');
+  assert.match(await page.locator('#vehicleNotFound').innerText(), /for 2019, not 2021/);
+  assert.equal(await page.locator('#confirmVehicle').count(), 0);
+  mock.state.vehicle.push('unofficial');
+  await page.click('#findVehicle');
+  await page.waitForFunction(() => /not the carmaker/.test(document.querySelector('#vehicleNotFound')?.innerText || ''));
+  mock.state.vehicle.push('notFound');
+  await page.click('#findVehicle');
+  await page.waitForFunction(() => /No official manual for that year/.test(document.querySelector('#vehicleNotFound')?.innerText || ''));
+  await page.click('#findVehicle');
+  await page.waitForSelector('#rejectVehicle');
+  await page.click('#rejectVehicle');
+  await page.waitForFunction(() => /wasn’t your car/.test(document.querySelector('#vehicleNotFound')?.innerText || ''));
+  mock.state.vehicle.push('webOff');
+  await page.click('#findVehicle');
+  await page.waitForSelector('#errMsg');
+  assert.match(await page.locator('#errMsg').innerText(), /Anthropic Console/);
+  await page.click('text=Close');
+  // nothing confirmed -> parse gets no vehicle facts, review says hands-on
+  await choose(page, '[data-add=seat-file]', [FX('carseat_manual.pdf')]);
+  await page.waitForSelector('#seatPages .thumb >> nth=1');
+  await page.click('#readManual');
+  await page.waitForSelector('[data-mode=rf_latch]');
+  assert.match(await visibleText(page), /No vehicle manual added/);
+  const ptxt = mock.state.requests.find(x => x.call === 'parseManual').body.messages[0].content.filter(c => c.type === 'text').map(c => c.text).join('\n');
+  assert.doesNotMatch(ptxt, /CONFIRMED VEHICLE FACTS/);
+});
+
+await test('find my car manual: free-text answer is repaired; Sonnet gets dynamic web tools', async ({ page, mock }) => {
+  await setKey(page);
+  mock.state.vehicle.push('freeText');
+  await startCarBuild(page);
+  await page.click('#findVehicle');
+  await page.waitForSelector('#confirmVehicle');
+  const rep = mock.state.requests.find(x => x.call === 'findVehicleManualRepair');
+  assert.ok(rep, 'repair call made');
+  assert.equal(rep.body.output_config.format.type, 'json_schema');
+  await page.click('#setBtn');
+  await page.fill('#model_vehicle', 'claude-sonnet-5-5');
+  await page.click('#saveSettings');
+  await page.click('#findVehicle');
+  await page.waitForSelector('#confirmVehicle');
+  const last = mock.state.requests.filter(x => x.call === 'findVehicleManual').at(-1);
+  assert.deepEqual(last.body.tools.map(t => t.type), ['web_search_20260209', 'web_fetch_20260209']);
+});
+
 await test('proxy mode sends passcode, never the key', async ({ page, mock }) => {
   await page.goto(BASE);
   await page.click('#setBtn');

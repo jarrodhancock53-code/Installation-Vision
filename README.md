@@ -23,6 +23,7 @@ Then **New build** → pick car seat / furniture / something else → add the ma
 
 - Four jobs: first install, move to another car, check an existing install, convert mode.
 - Vehicle year, make and model are required. The vehicle manual's child-seat pages are optional; without them BuildLens never states car-specific facts (tether anchor location, lower anchors, belt locking) and turns them into hands-on checks.
+- **Find my car's manual**: on the manual screen, BuildLens can search the web for your car's official owner's manual (Claude web search + web fetch, Haiku by default, about 1–5¢) and pull the child-seat facts with verbatim quotes and page numbers. You confirm "Yes, that's my car" before anything is used; a wrong year, a non-manufacturer source, or no quotes means it's not used. Results are cached per car. Web search may need enabling in the Anthropic Console (Settings → Privacy).
 - Hands-on checks must all be ticked before a car seat step can move on. The finish screen points to a certified technician.
 
 ## Key proxy (Cloudflare Worker)
@@ -51,6 +52,7 @@ API details: structured outputs (`output_config.format`, no forced `tool_choice`
 cd tests
 npm install                 # pdf.js for the tests
 python3 make_fixtures.py    # synthetic manuals and photos
+node check-syntax.mjs       # app script compiles
 node proxy.test.mjs         # proxy unit tests
 node e2e.mjs                # Chromium end-to-end tests against a mocked Claude API
 ```

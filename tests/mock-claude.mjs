@@ -6,7 +6,12 @@ export function createMock() {
     requests: [],
     next: [],            // queued one-shot behaviours: 'refusal' | 'offline' | 'overloaded' | 'max_tokens'
     checkVerdicts: [],   // queued check verdicts; default 'pass'
+    vehicle: [],         // queued vehicle-lookup behaviours: 'pause' | 'wrongYear' | 'notFound' | 'webOff' | 'freeText' | 'unofficial'
   };
+  const vehicleFound = (year = 2021) => ({ found: true, manual: { title: `${year} Honda CR-V Owner's Manual`, year, make: 'Honda', model: 'CR-V', url: 'https://owners.honda.com/crv-2021.pdf', publisher: 'American Honda Motor Co.', isOfficial: true },
+    matchNotes: 'Exact model year match.', facts: [
+      { topic: 'tether_anchor', fact: 'Tether anchors are on the back of the rear seatbacks, behind each outboard seat.', quote: 'The tether anchorage points are located on the back of the rear seat.', page: 'p. 72', url: 'https://owners.honda.com/crv-2021.pdf' },
+      { topic: 'lower_anchors', fact: 'Lower anchors are in the outboard rear seats only; do not use them for the center seat.', quote: 'Do not install a child seat in the center position using the lower anchors.', page: 'p. 70', url: 'https://owners.honda.com/crv-2021.pdf' }], notFoundReason: null });
 
   const callOf = body => (body.system?.[0]?.text.match(/CALL: (\w+)/) || [])[1];
   const textOf = body => body.messages[0].content.filter(c => c.type === 'text').map(c => c.text).join('\n');
@@ -33,7 +38,7 @@ export function createMock() {
     modes: [{ id: 'rf_latch', label: 'Rear-facing with lower anchors', description: '5–40 lb' }, { id: 'rf_belt', label: 'Rear-facing with seat belt', description: '5–40 lb' }, { id: 'ff', label: 'Forward-facing with tether', description: '22–65 lb' }],
     parts: [{ id: 'S', name: 'Seat shell', qty: 1, description: '', visualCues: '' }],
     hardware: [], tools: [],
-    vehicleFacts: withVehicle ? [{ fact: 'Tether anchors are on the rear shelf behind each headrest.', vehiclePage: 1 }] : [],
+    vehicleFacts: withVehicle ? [{ fact: 'Tether anchors are on the rear shelf behind each headrest.', source: 'Vehicle manual page 1' }] : [],
     steps: [
       { n: 1, title: 'Set recline', instruction: 'Set the recline to position 1 or 2.', modes: ['rf_latch', 'rf_belt'], parts: ['S'], hardware: [], tools: [], manualPage: 2, manualBox: [300, 700, 500, 350], cautions: [], checkCriteria: ['Recline in position 1 or 2'], humanChecks: [{ check: 'Recline indicator in the blue zone', howTo: 'Look at the bubble on the side of the seat.' }] },
       { n: 2, title: 'Attach lower anchors', instruction: 'Clip both lower anchor connectors to the anchors in the seat crease.', modes: ['rf_latch'], parts: ['S'], hardware: [], tools: [], manualPage: 2, manualBox: [300, 700, 500, 350], cautions: [], checkCriteria: ['Both connectors attached'],
@@ -46,6 +51,7 @@ export function createMock() {
     const call = callOf(body); const [w, h] = photoDims(body); const text = textOf(body);
     switch (call) {
       case 'testConnection': return { ok: true };
+      case 'findVehicleManualRepair': return vehicleFound();
       case 'parseManual': {
         if (/Product category chosen by the user: car_seat/.test(text)) return carGuide(/Vehicle manual pages provided: yes/.test(text));
         return furnitureGuide;
@@ -83,11 +89,29 @@ export function createMock() {
     return out;
   }
 
+  function vehicleMessage(body, kind) {
+    const base = { id: 'msg_v', type: 'message', role: 'assistant', model: body.model, usage: { input_tokens: 9000, output_tokens: 700, server_tool_use: { web_search_requests: 2 } } };
+    const tools = [{ type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: { query: '2021 Honda CR-V owners manual child seat' } },
+      { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [{ type: 'web_search_result', url: 'https://owners.honda.com/crv-2021.pdf', title: '2021 CR-V Owner\'s Manual', encrypted_content: 'x' }] }];
+    if (kind === 'pause' && !body.messages.some(m => m.role === 'assistant')) return { ...base, content: tools, stop_reason: 'pause_turn' };
+    const json = kind === 'wrongYear' ? vehicleFound(2019) : kind === 'notFound' ? { found: false, manual: { title: '', year: null, make: '', model: '', url: '', publisher: '', isOfficial: false }, matchNotes: '', facts: [], notFoundReason: 'No official manual for that year was found.' }
+      : kind === 'unofficial' ? { ...vehicleFound(), manual: { ...vehicleFound().manual, isOfficial: false, publisher: 'carmanualsonline.example' } } : vehicleFound();
+    const text = kind === 'freeText' ? 'I found the 2021 Honda CR-V owner\'s manual. Tether anchors are on the back of the rear seat (p. 72).' : 'Here is the result:\n```json\n' + JSON.stringify(json) + '\n```';
+    return { ...base, content: [...tools, { type: 'text', text }], stop_reason: 'end_turn' };
+  }
+
   async function handler(route) {
     const req = route.request();
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors() });
     const body = JSON.parse(req.postData());
     state.requests.push({ url: req.url(), headers: req.headers(), body, call: callOf(body) });
+    if (callOf(body) === 'findVehicleManual') {
+      const kind = state.vehicle[0] || 'found';
+      if (kind === 'webOff') { state.vehicle.shift(); return route.fulfill({ status: 400, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'Web search is not enabled for this organization.' } }) }); }
+      const msg = vehicleMessage(body, kind);
+      if (msg.stop_reason !== 'pause_turn') state.vehicle.shift();
+      return route.fulfill({ status: 200, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify(msg) });
+    }
     const mode = state.next.shift();
     if (mode === 'offline') return route.abort('internetdisconnected');
     if (mode === 'overloaded') return route.fulfill({ status: 529, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }) });
