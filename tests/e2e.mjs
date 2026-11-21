@@ -337,6 +337,22 @@ await test('errors: refusal, offline, 529 retry, bad key', async ({ page, mock }
   assert.match(await page.locator('#app').innerText(), /refusal/);
 });
 
+await test('fallback beta rejected: retries once without it, then stops sending it', async ({ page, mock }) => {
+  await setKey(page);
+  await page.click('#setBtn');
+  mock.state.next.push('no-fallbacks');
+  await page.click('#testConn');
+  await page.waitForSelector('text=Connected');
+  assert.equal(mock.state.requests.length, 2);
+  assert.equal(mock.state.requests[0].body.fallbacks, 'default');
+  assert.equal(mock.state.requests[1].body.fallbacks, undefined);
+  assert.equal(mock.state.requests[1].headers['anthropic-beta'], undefined);
+  await page.click('text=Close');
+  mock.state.next.length = 0;
+  await page.click('#testConn'); await page.waitForSelector('text=Connected');
+  assert.equal(mock.state.requests[2].body.fallbacks, undefined, 'remembered for the session');
+});
+
 await test('proxy mode sends passcode, never the key', async ({ page, mock }) => {
   await page.goto(BASE);
   await page.click('#setBtn');

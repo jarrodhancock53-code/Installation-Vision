@@ -92,6 +92,7 @@ export function createMock() {
     if (mode === 'offline') return route.abort('internetdisconnected');
     if (mode === 'overloaded') return route.fulfill({ status: 529, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }) });
     if (mode === 'unauthorized') return route.fulfill({ status: 401, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) });
+    if (mode === 'no-fallbacks' && body.fallbacks) { state.next.unshift('no-fallbacks'); return route.fulfill({ status: 400, headers: { ...cors(), 'content-type': 'application/json' }, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'fallbacks: beta not enabled' } }) }); }
     if (mode === 'refusal') return route.fulfill({ status: 200, headers: { ...cors(), 'content-type': 'text/event-stream' }, body: sse(body, {}, 'refusal') });
     let json; try { json = respond(body); } catch (e) { return route.fulfill({ status: 400, headers: cors(), body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: e.message } }) }); }
     return route.fulfill({ status: 200, headers: { ...cors(), 'content-type': 'text/event-stream' }, body: sse(body, json) });

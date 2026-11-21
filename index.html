@@ -122,7 +122,8 @@ const MAX_EDGE = 2576;        // current models' image limit; coordinates map 1:
 const PAGE_EDGE = 1800;       // manual pages
 const CROP_EDGE = 512;        // inventory reference crops
 const RANGE_OVER = 40;        // ask for a page range above this
-const MAX_PAGES = 90;         // per parse call
+const MAX_PAGES = 60;         // per parse call (keeps the request under the API's 32 MB limit)
+const MAX_BODY = 30e6;
 const LOW_CONF = 0.5;
 const FALLBACK_MODELS = new Set(['claude-opus-5-5', 'claude-sonnet-5-5']);
 const MODEL_OPTIONS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
@@ -216,8 +217,11 @@ async function putBlob(blob) { const k = 'b_' + uid(); await DB.put('blobs', blo
 const getBlob = k => DB.get('blobs', k);
 const bitmapCache = new Map();
 async function getBitmap(k) {
-  if (!bitmapCache.has(k)) bitmapCache.set(k, getBlob(k).then(b => { if (!b) throw new Error('Missing image ' + k); return createImageBitmap(b); }));
-  return bitmapCache.get(k);
+  if (bitmapCache.has(k)) { const p = bitmapCache.get(k); bitmapCache.delete(k); bitmapCache.set(k, p); return p; }
+  const p = getBlob(k).then(b => { if (!b) throw new Error('Missing image ' + k); return createImageBitmap(b); });
+  bitmapCache.set(k, p);
+  while (bitmapCache.size > 6) { const [old, op] = bitmapCache.entries().next().value; bitmapCache.delete(old); op.then(b => b.close?.()).catch(() => {}); } // keep memory low on phones
+  return p;
 }
 const urlCache = new Map();
 async function blobUrl(k) {
@@ -369,6 +373,8 @@ async function callClaude({ call, model, system, guideJson, content, schema, eff
   let url;
   if (s.conn === 'proxy') { url = s.proxyUrl.replace(/\/+$/, ''); if (!/\/v1\/messages$/.test(url)) url += '/v1/messages'; headers['x-buildlens-passcode'] = s.passcode; }
   else { url = API_URL; headers['x-api-key'] = s.apiKey; headers['anthropic-dangerous-direct-browser-access'] = 'true'; }
+  if (sessionStorage.getItem('bl:noFallbacks')) { delete body.fallbacks; delete headers['anthropic-beta']; }
+  if (JSON.stringify(body).length > MAX_BODY) throw new UserError('That is too much to send at once. Remove pages you don’t need (other languages, warranty pages) and try again.');
   const t0 = performance.now(); let resp, lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     try { resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal }); }
@@ -378,6 +384,11 @@ async function callClaude({ call, model, system, guideJson, content, schema, eff
       if (attempt === 0) { await sleep(2000); continue; } break;
     }
     if ([429, 500, 529].includes(resp.status) && attempt === 0) { await sleep(2000); continue; }
+    if (resp.status === 400 && body.fallbacks && attempt === 0) {
+      // The refusal-fallback beta may not be enabled for this key: retry once without it and remember.
+      const t = await resp.clone().text().catch(() => '');
+      if (/fallback|beta/i.test(t)) { try { sessionStorage.setItem('bl:noFallbacks', '1'); } catch {} delete body.fallbacks; delete headers['anthropic-beta']; continue; }
+    }
     break;
   }
   if (!resp) { await logCall({ buildId, call, model, ok: false, error: lastErr.message, latencyMs: performance.now() - t0 }); throw lastErr; }
@@ -570,6 +581,7 @@ function pickFiles({ camera = false, multiple = false, accept } = {}) {
     // Save state before the camera opens: iOS may kill this tab while the camera app is up.
     saveBuild().catch(() => {});
     inp.onchange = () => res([...inp.files]);
+    inp.oncancel = () => res([]);
     inp.click();
   });
 }
@@ -628,7 +640,7 @@ function stageView({ photo, getScene, onTap, inset }) {
   const canvas = h('canvas', { 'aria-label': 'Photo with guidance overlay' });
   const wrap = h('div', { class: 'stage' }, canvas, inset || null);
   let bmp = null, k = 1, scene = { shapes: [], arrows: [] };
-  const redraw = () => { if (!bmp) return; scene = getScene(); k = drawScene(canvas, bmp, photo.w, photo.h, { ...scene, show: ui.showOverlay !== false }); canvas.dataset.drawn = String(scene.shapes.length); };
+  const redraw = () => { if (!wrap.isConnected && bmp) { ro.disconnect(); return; } if (!bmp) return; if (!bmp.width) { bmp = null; getBitmap(photo.key).then(b => { bmp = b; redraw(); }); return; } scene = getScene(); k = drawScene(canvas, bmp, photo.w, photo.h, { ...scene, show: ui.showOverlay !== false }); canvas.dataset.drawn = String(scene.shapes.length); };
   getBitmap(photo.key).then(b => { bmp = b; requestAnimationFrame(redraw); }).catch(e => console.error(e));
   const ro = new ResizeObserver(() => redraw()); ro.observe(wrap);
   canvas.addEventListener('click', e => {
